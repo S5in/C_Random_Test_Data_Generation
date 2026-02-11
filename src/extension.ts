@@ -1,35 +1,56 @@
-// The module 'vscode' contains the VS Code extensibility API
-// Import the module and reference it with the alias vscode in your code below
 import * as vscode from 'vscode';
-
-// This method is called when your extension is activated
-// Your extension is activated the very first time the command is executed
 import * as path from 'path';
-import Parser from 'web-tree-sitter'; 
 
 export async function activate(context: vscode.ExtensionContext) {
-    // 1. Initialize the WASM runtime
-    await Parser.init(); 
-    
-    // 2. Create the parser instance
-    const parser = new Parser();
+    try {
+        // Get the Parser class from the module
+        const ParserModule = require('web-tree-sitter');
+        const Parser = ParserModule.Parser;
+        const Language = ParserModule.Language;
+        
+        // 1. Initialize the WASM runtime with the correct path
+        await Parser.init({
+            locateFile(scriptName: string, scriptDirectory: string) {
+                return path.join(context.extensionPath, 'dist', scriptName);
+            }
+        });
+        
+        // 2. Create the parser instance
+        const parser = new Parser();
 
-    const langPath = path.join(context.extensionPath, 'tree-sitter-c.wasm');
-    const CLang = await Parser.Language.load(langPath);
-    parser.setLanguage(CLang);
+        // 3. Load the language using VS Code's URI and file system API
+        const langPath = vscode.Uri.joinPath(context.extensionUri, 'dist', 'tree-sitter-c.wasm');
+        console.log('Loading language from URI:', langPath.toString());
+        
+        const wasmBuffer = await vscode.workspace.fs.readFile(langPath);
+        console.log('Read buffer, size:', wasmBuffer.length);
+        console.log('Buffer type:', wasmBuffer.constructor.name);
+        console.log('First 4 bytes (magic number):', Array.from(wasmBuffer.slice(0, 4)));
+        
+        // Ensure it's a proper Uint8Array
+        const uint8Array = new Uint8Array(wasmBuffer.buffer, wasmBuffer.byteOffset, wasmBuffer.byteLength);
+        console.log('Uint8Array first 4 bytes:', Array.from(uint8Array.slice(0, 4)));
+        
+        const CLang = await Language.load(uint8Array);
+        parser.setLanguage(CLang);
 
-    let disposable = vscode.commands.registerCommand('random-test-data-generation.generateTest', () => {
-        const editor = vscode.window.activeTextEditor;
-        if (!editor) { return; }
+        let disposable = vscode.commands.registerCommand('random-test-data-generation.generateTest', () => {
+            const editor = vscode.window.activeTextEditor;
+            if (!editor) { return; }
 
-        const code = editor.document.getText();
-        const tree = parser.parse(code);
+            const code = editor.document.getText();
+            const tree = parser.parse(code);
 
-        vscode.window.showInformationMessage(`Success! AST Root: ${tree.rootNode.type}`);
-    });
+            vscode.window.showInformationMessage(`Success! AST Root: ${tree.rootNode.type}`);
+        });
 
-    context.subscriptions.push(disposable);
+        context.subscriptions.push(disposable);
+        
+        vscode.window.showInformationMessage('Extension activated successfully!');
+    } catch (error) {
+        console.error('Extension activation failed:', error);
+        vscode.window.showErrorMessage(`Failed to activate extension: ${error}`);
+    }
 }
 
-// This method is called when your extension is deactivated
 export function deactivate() {}

@@ -9,7 +9,9 @@
   "categories": [
     "Other"
   ],
-  "activationEvents": [],
+  "activationEvents": [
+    "onCommand:random-test-data-generation.generateTest"
+  ],
   "main": "./dist/extension.js",
   "contributes": {
     "commands": [
