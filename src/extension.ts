@@ -1,5 +1,8 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
+import * as fs from 'fs';
+import { FunctionExtractor } from './parser/functionExtractor';
+import { TestGenerator } from './generator/testGenerator';
 
 export async function activate(context: vscode.ExtensionContext) {
     try {
@@ -8,7 +11,7 @@ export async function activate(context: vscode.ExtensionContext) {
         const Parser = ParserModule.Parser;
         const Language = ParserModule.Language;
         
-        // 1. Initialize the WASM runtime with the correct path
+        // 1. Initialize the WASM runtime
         await Parser.init({
             locateFile(scriptName: string, scriptDirectory: string) {
                 return path.join(context.extensionPath, 'dist', scriptName);
@@ -18,35 +21,58 @@ export async function activate(context: vscode.ExtensionContext) {
         // 2. Create the parser instance
         const parser = new Parser();
 
-        // 3. Load the language using VS Code's URI and file system API
-        const langPath = vscode.Uri.joinPath(context.extensionUri, 'dist', 'tree-sitter-c.wasm');
-        console.log('Loading language from URI:', langPath.toString());
-        
-        const wasmBuffer = await vscode.workspace.fs.readFile(langPath);
-        console.log('Read buffer, size:', wasmBuffer.length);
-        console.log('Buffer type:', wasmBuffer.constructor.name);
-        console.log('First 4 bytes (magic number):', Array.from(wasmBuffer.slice(0, 4)));
-        
-        // Ensure it's a proper Uint8Array
-        const uint8Array = new Uint8Array(wasmBuffer.buffer, wasmBuffer.byteOffset, wasmBuffer.byteLength);
-        console.log('Uint8Array first 4 bytes:', Array.from(uint8Array.slice(0, 4)));
-        
-        const CLang = await Language.load(uint8Array);
+        // 3. Load the C language
+        const langPath = path.join(context.extensionPath, 'dist', 'tree-sitter-c.wasm');
+        const wasmBuffer = fs.readFileSync(langPath);
+        const CLang = await Language.load(wasmBuffer);
         parser.setLanguage(CLang);
 
-        let disposable = vscode.commands.registerCommand('random-test-data-generation.generateTest', () => {
+        // 4. Register the command
+        let disposable = vscode.commands.registerCommand('random-test-data-generation.generateTest', async () => {
             const editor = vscode.window.activeTextEditor;
-            if (!editor) { return; }
+            if (!editor) { 
+                vscode.window.showWarningMessage('No active editor found');
+                return; 
+            }
 
-            const code = editor.document.getText();
+            const document = editor.document;
+            if (document.languageId !== 'c') {
+                vscode.window.showWarningMessage('This command only works with C files');
+                return;
+            }
+
+            const code = document.getText();
             const tree = parser.parse(code);
 
-            vscode.window.showInformationMessage(`Success! AST Root: ${tree.rootNode.type}`);
+            // Extract functions
+            const functions = FunctionExtractor.extractFunctions(tree);
+            
+            if (functions.length === 0) {
+                vscode.window.showInformationMessage('No functions found in the current file');
+                return;
+            }
+
+            // Generate test code
+            const sourceFileName = path.basename(document.fileName);
+            const testCode = TestGenerator.generateTests(functions, sourceFileName);
+
+            // Create new test file
+            const testFileName = sourceFileName.replace('.c', '_test.cpp');
+            const testFilePath = path.join(path.dirname(document.fileName), testFileName);
+
+            // Write the test file
+            await fs.promises.writeFile(testFilePath, testCode, 'utf8');
+
+            // Open the new test file
+            const testDocument = await vscode.workspace.openTextDocument(testFilePath);
+            await vscode.window.showTextDocument(testDocument);
+
+            vscode.window.showInformationMessage(
+                `Generated ${functions.length} test(s) in ${testFileName}`
+            );
         });
 
         context.subscriptions.push(disposable);
-        
-        vscode.window.showInformationMessage('Extension activated successfully!');
     } catch (error) {
         console.error('Extension activation failed:', error);
         vscode.window.showErrorMessage(`Failed to activate extension: ${error}`);

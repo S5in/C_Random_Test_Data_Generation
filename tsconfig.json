@@ -4,6 +4,7 @@
 		"target": "ES2022",
 		"lib": [
 			"ES2022", "DOM"], // "DOM" provides WebGL and WebAssembly types
+		"types": ["node","mocha"],
 		"sourceMap": true,
 		"rootDir": "src",
 		"strict": true,   /* enable all strict type-checking options */
