@@ -143,6 +143,12 @@ export class FunctionExtractor {
         
         if (!typeNode) return null;
 
+        const paramType = typeNode.text.trim();
+        
+        if (paramType === 'void' && !declaratorNode) {
+            return null;
+        }
+
         let paramName = '';
         if (declaratorNode) {
             paramName = this.getParameterName(declaratorNode);
@@ -150,7 +156,7 @@ export class FunctionExtractor {
 
         return {
             name: paramName || 'param',
-            type: typeNode.text
+            type: paramType
         };
     }
 
