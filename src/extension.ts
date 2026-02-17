@@ -3,6 +3,7 @@ import * as path from 'path';
 import * as fs from 'fs';
 import { FunctionExtractor } from './parser/functionExtractor';
 import { TestGenerator } from './generator/testGenerator';
+import { generateBoundarySets } from './generator/boundaryValues';
 
 export async function activate(context: vscode.ExtensionContext) {
     try {
@@ -60,15 +61,31 @@ export async function activate(context: vscode.ExtensionContext) {
             const testFileName = sourceFileName.replace('.c', '_test.cpp');
             const testFilePath = path.join(path.dirname(document.fileName), testFileName);
 
-            // Write the test file
-            await fs.promises.writeFile(testFilePath, testCode, 'utf8');
+            // Write the test file with error handling
+            try {
+                await fs.promises.writeFile(testFilePath, testCode, 'utf8');
+            } catch (error) {
+                vscode.window.showErrorMessage(`Failed to write test file: ${error}`);
+                return;
+            }
 
             // Open the new test file
-            const testDocument = await vscode.workspace.openTextDocument(testFilePath);
-            await vscode.window.showTextDocument(testDocument);
+            try {
+                const testDocument = await vscode.workspace.openTextDocument(testFilePath);
+                await vscode.window.showTextDocument(testDocument);
+            } catch (error) {
+                vscode.window.showWarningMessage(`Test file created but failed to open: ${error}`);
+                return;
+            }
+
+            // Calculate total test cases (functions × boundary sets per function)
+            const totalTests = functions.reduce((sum, func) => {
+                const boundarySets = generateBoundarySets(func.parameters);
+                return sum + boundarySets.length;
+            }, 0);
 
             vscode.window.showInformationMessage(
-                `Generated ${functions.length} test(s) in ${testFileName}`
+                `Generated ${totalTests} test case(s) for ${functions.length} function(s) in ${testFileName}`
             );
         });
 
