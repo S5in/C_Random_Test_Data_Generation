@@ -15,7 +15,15 @@
     "commands": [
       {
         "command": "random-test-data-generation.generateTest",
-        "title": "Generate Google Test"
+        "title": "Generate Google Tests"
+      },
+      {
+        "command": "random-test-data-generation.buildAndRun",
+        "title": "Build & Run Tests"
+      },
+      {
+        "command": "random-test-data-generation.cleanBuild",
+        "title": "Clean Build Directory"
       }
     ],
     "menus": {
@@ -23,7 +31,12 @@
         {
           "when": "resourceLangId == c",
           "command": "random-test-data-generation.generateTest",
-          "group": "navigation"
+          "group": "testing"
+        },
+        {
+          "when": "resourceLangId == c",
+          "command": "random-test-data-generation.buildAndRun",
+          "group": "testing"
         }
       ]
     }
