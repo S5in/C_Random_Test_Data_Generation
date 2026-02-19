@@ -19,50 +19,50 @@ export class CMakeGenerator {
         const executableName = this.getExecutableName(testFileName);
 
         return `cmake_minimum_required(VERSION 3.14)
-project(${projectName})
+        project(${projectName})
 
-# Set C++ standard
-set(CMAKE_CXX_STANDARD 14)
-set(CMAKE_CXX_STANDARD_REQUIRED ON)
+        # Set C++ standard
+        set(CMAKE_CXX_STANDARD 14)
+        set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-# Disable compiler extensions for portability
-set(CMAKE_CXX_EXTENSIONS OFF)
+        # Disable compiler extensions for portability
+        set(CMAKE_CXX_EXTENSIONS OFF)
 
-# Find Google Test
-find_package(GTest REQUIRED)
+        # Find Google Test
+        find_package(GTest REQUIRED)
 
-# Include directories
-include_directories(\${GTEST_INCLUDE_DIRS})
+        # Include directories
+        include_directories(\${GTEST_INCLUDE_DIRS})
 
-# Add test executable
-add_executable(${executableName} ${testFileName})
+        # Add test executable
+        add_executable(${executableName} ${testFileName})
 
-# Link Google Test
-# Try modern CMake targets first, fall back to variables
-if(TARGET GTest::GTest AND TARGET GTest::Main)
-    target_link_libraries(${executableName} 
-        GTest::GTest 
-        GTest::Main
-        pthread
-    )
-else()
-    target_link_libraries(${executableName} 
-        \${GTEST_LIBRARIES}
-        \${GTEST_MAIN_LIBRARIES}
-        pthread
-    )
-endif()
+        # Link Google Test
+        # Try modern CMake targets first, fall back to variables
+        if(TARGET GTest::GTest AND TARGET GTest::Main)
+            target_link_libraries(${executableName} 
+                GTest::GTest 
+                GTest::Main
+                pthread
+            )
+        else()
+            target_link_libraries(${executableName} 
+                \${GTEST_LIBRARIES}
+                \${GTEST_MAIN_LIBRARIES}
+                pthread
+            )
+        endif()
 
-# Enable testing
-enable_testing()
+        # Enable testing
+        enable_testing()
 
-# Add test
-add_test(NAME ${executableName} COMMAND ${executableName})
+        # Add test
+        add_test(NAME ${executableName} COMMAND ${executableName})
 
-# Print success message
-message(STATUS "Test executable: ${executableName}")
-message(STATUS "Test file: ${testFileName}")
-`;
+        # Print success message
+        message(STATUS "Test executable: ${executableName}")
+        message(STATUS "Test file: ${testFileName}")
+        `;
     }
 
     /**

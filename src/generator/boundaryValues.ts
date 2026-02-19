@@ -215,6 +215,11 @@ export function getBoundaryValues(type: string): BoundaryValue[] {
 }
 
 /**
+ * Alias for getBoundaryValues (for backwards compatibility)
+ */
+export const getBoundariesForType = getBoundaryValues;
+
+/**
  * Gets required C headers for a type's boundary values.
  * 
  * @param type - C type string
