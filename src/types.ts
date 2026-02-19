@@ -18,3 +18,11 @@ export interface FunctionInfo {
     startLine: number;
     endLine: number;
 }
+
+export interface GlobalVariable {
+    name: string;
+    type: string;
+    isStatic: boolean;
+    isConst: boolean;
+    initialValue?: string;
+}

@@ -6,6 +6,8 @@ import { TestGenerator } from './generator/testGenerator';
 import { CMakeGenerator } from './generator/cmakeGenerator';
 import { BuildRunner } from './build/buildRunner';
 import { generateBoundarySets } from './generator/boundaryValues';
+import { GlobalExtractor } from './parser/globalExtractor';
+import { GlobalUsageAnalyzer } from './parser/globalUsageAnalyzer';
 
 let buildRunner: BuildRunner;
 
@@ -134,9 +136,34 @@ async function generateTests(parser: any): Promise<{
         return null;
     }
 
+    // Extract global variables
+    const globals = GlobalExtractor.extractGlobals(tree);
+    
+    // Analyze which functions use which globals
+    const globalUsage = GlobalUsageAnalyzer.analyzeUsage(functions, globals, code);
+
+    // Log summary if globals found
+    if (globals.length > 0) {
+        const summary = GlobalUsageAnalyzer.getGlobalSummary(globals, globalUsage);
+        console.log(summary);
+        
+        // Show info message to user
+        const functionsWithGlobals = Array.from(globalUsage.keys()).length;
+        if (functionsWithGlobals > 0) {
+            vscode.window.showInformationMessage(
+                `🔍 Detected ${globals.length} global variable(s) used by ${functionsWithGlobals} function(s)`
+            );
+        }
+    }
+
     // Generate test code
     const sourceFileName = path.basename(document.fileName);
-    const testCode = TestGenerator.generateTests(functions, sourceFileName);
+    const testCode = TestGenerator.generateTests(
+        functions,
+        sourceFileName,
+        globals,
+        globalUsage
+    );
 
     // Generate CMakeLists.txt
     const testFileName = sourceFileName.replace('.c', '_test.cpp');
@@ -170,10 +197,11 @@ async function generateTests(parser: any): Promise<{
         await vscode.window.showTextDocument(testDocument);
 
         // Calculate total tests
-        const totalTests = functions.reduce((sum, func) => {
-            const boundarySets = generateBoundarySets(func.parameters);
-            return sum + boundarySets.length;
-        }, 0);
+        let totalTests = 0;
+        for (const func of functions) {
+            const usedGlobals = globalUsage.get(func.name) || [];
+            totalTests += GlobalUsageAnalyzer.estimateTestCount(func, usedGlobals);
+        }
 
         const executableName = testFileName.replace('_test.cpp', '_tests');
 
