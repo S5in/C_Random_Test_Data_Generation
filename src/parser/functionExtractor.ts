@@ -1,13 +1,17 @@
-// Use require to avoid TypeScript module resolution issues
+/**
+ * Function Extractor
+ * 
+ * Extracts function declarations from C source code using Tree-sitter
+ */
+
 const Parser = require('web-tree-sitter');
-type ParserType = typeof Parser;
-type Tree = any;  // Parser.Tree
-type SyntaxNode = any;  // Parser.SyntaxNode
+type Tree = any;
+type SyntaxNode = any;
 import { FunctionInfo, FunctionParameter } from '../types';
 
 export class FunctionExtractor {
     /**
-     * Extract all function definitions from the AST
+     * Extract all functions from the C source file
      */
     static extractFunctions(tree: Tree): FunctionInfo[] {
         const functions: FunctionInfo[] = [];
@@ -16,15 +20,13 @@ export class FunctionExtractor {
         const visitNode = () => {
             const node = cursor.currentNode;
 
-            // Look for function_definition nodes
             if (node.type === 'function_definition') {
-                const functionInfo = this.parseFunctionDefinition(node);
-                if (functionInfo) {
-                    functions.push(functionInfo);
+                const func = this.parseFunctionDefinition(node);
+                if (func) {
+                    functions.push(func);
                 }
             }
 
-            // Traverse children
             if (cursor.gotoFirstChild()) {
                 do {
                     visitNode();
@@ -38,94 +40,84 @@ export class FunctionExtractor {
     }
 
     /**
-     * Parse a function_definition node to extract function information
+     * ✨ NEW: Find function at a specific line number
+     */
+    static findFunctionAtLine(tree: Tree, lineNumber: number): FunctionInfo | null {
+        const allFunctions = this.extractFunctions(tree);
+        
+        return allFunctions.find(func => 
+            lineNumber >= func.startLine && lineNumber <= func.endLine
+        ) || null;
+    }
+
+    /**
+     * Parse a function definition node
      */
     private static parseFunctionDefinition(node: SyntaxNode): FunctionInfo | null {
-        // Function definition structure:
-        // function_definition
-        //   ├── type (return type)
-        //   ├── function_declarator
-        //   │   ├── identifier (function name)
-        //   │   └── parameter_list
-        //   └── compound_statement (body)
+        try {
+            // Extract return type
+            const typeNode = node.childForFieldName('type');
+            const returnType = typeNode?.text || 'void';
 
-        const declarator = node.childForFieldName('declarator');
-        if (!declarator) return null;
+            // Extract function name
+            const declaratorNode = node.childForFieldName('declarator');
+            if (!declaratorNode) return null;
 
-        const functionName = this.getFunctionName(declarator);
-        if (!functionName) return null;
+            const functionName = this.extractFunctionName(declaratorNode);
+            if (!functionName) return null;
 
-        const returnType = this.getReturnType(node);
-        const parameters = this.getParameters(declarator);
+            // Extract parameters
+            const parameters = this.extractParameters(declaratorNode);
 
-        return {
-            name: functionName,
-            returnType: returnType || 'void',
-            parameters,
-            startLine: node.startPosition.row,
-            endLine: node.endPosition.row
-        };
+            // Get line numbers
+            const startLine = node.startPosition.row;
+            const endLine = node.endPosition.row;
+
+            return {
+                name: functionName,
+                returnType,
+                parameters,
+                startLine,
+                endLine
+            };
+
+        } catch (error) {
+            console.warn('Failed to parse function:', error);
+            return null;
+        }
     }
 
-    private static getFunctionName(declarator: SyntaxNode): string | null {
-        // Handle different declarator types (pointer_declarator, function_declarator, etc.)
-        let current = declarator;
-        
-        while (current) {
-            if (current.type === 'identifier') {
-                return current.text;
+    private static extractFunctionName(declaratorNode: SyntaxNode): string {
+        if (declaratorNode.type === 'function_declarator') {
+            const nameNode = declaratorNode.childForFieldName('declarator');
+            if (nameNode?.type === 'identifier') {
+                return nameNode.text;
             }
-            
-            // For function_declarator, identifier is a child
-            const identifier = current.childForFieldName('declarator');
-            if (identifier) {
-                current = identifier;
-            } else {
-                // Try to find identifier among children
-                for (let i = 0; i < current.childCount; i++) {
-                    const child = current.child(i);
-                    if (child && child.type === 'identifier') {
-                        return child.text;
-                    }
-                }
-                break;
+            if (nameNode?.type === 'pointer_declarator') {
+                const innerName = nameNode.childForFieldName('declarator');
+                return innerName?.text || '';
             }
         }
-        
-        return null;
+
+        for (let i = 0; i < declaratorNode.childCount; i++) {
+            const child = declaratorNode.child(i);
+            if (child && child.type === 'identifier') {
+                return child.text;
+            }
+        }
+
+        return '';
     }
 
-    private static getReturnType(node: SyntaxNode): string | null {
-        const typeNode = node.childForFieldName('type');
-        return typeNode ? typeNode.text : null;
-    }
-
-    private static getParameters(declarator: SyntaxNode): FunctionParameter[] {
+    private static extractParameters(declaratorNode: SyntaxNode): FunctionParameter[] {
         const parameters: FunctionParameter[] = [];
         
-        // Find parameter_list
-        let paramList: SyntaxNode | null = null;
-        
-        const findParamList = (node: SyntaxNode): SyntaxNode | null => {
-            if (node.type === 'parameter_list') {
-                return node;
-            }
-            for (let i = 0; i < node.childCount; i++) {
-                const child = node.child(i);
-                if (child) {
-                    const result = findParamList(child);
-                    if (result) return result;
-                }
-            }
-            return null;
-        };
-        
-        paramList = findParamList(declarator);
-        if (!paramList) return parameters;
+        const paramsNode = declaratorNode.childForFieldName('parameters');
+        if (!paramsNode) return parameters;
 
-        // Parse each parameter
-        for (let i = 0; i < paramList.childCount; i++) {
-            const child = paramList.child(i);
+        for (let i = 0; i < paramsNode.childCount; i++) {
+            const child = paramsNode.child(i);
+            
             if (child && child.type === 'parameter_declaration') {
                 const param = this.parseParameter(child);
                 if (param) {
@@ -139,41 +131,37 @@ export class FunctionExtractor {
 
     private static parseParameter(node: SyntaxNode): FunctionParameter | null {
         const typeNode = node.childForFieldName('type');
-        const declaratorNode = node.childForFieldName('declarator');
-        
         if (!typeNode) return null;
 
-        const paramType = typeNode.text.trim();
+        const type = typeNode.text;
+
+        const declaratorNode = node.childForFieldName('declarator');
         
-        if (paramType === 'void' && !declaratorNode) {
+        if (!declaratorNode) {
             return null;
         }
 
-        let paramName = '';
-        if (declaratorNode) {
-            paramName = this.getParameterName(declaratorNode);
-        }
-
-        return {
-            name: paramName || 'param',
-            type: paramType
-        };
-    }
-
-    private static getParameterName(declarator: SyntaxNode): string {
-        // Handle pointer_declarator, identifier, etc.
-        if (declarator.type === 'identifier') {
-            return declarator.text;
-        }
+        let name = '';
         
-        // For pointer_declarator, array_declarator, etc.
-        for (let i = 0; i < declarator.childCount; i++) {
-            const child = declarator.child(i);
-            if (child && child.type === 'identifier') {
-                return child.text;
+        if (declaratorNode.type === 'identifier') {
+            name = declaratorNode.text;
+        } else if (declaratorNode.type === 'pointer_declarator') {
+            const innerDeclarator = declaratorNode.childForFieldName('declarator');
+            if (innerDeclarator?.type === 'identifier') {
+                name = innerDeclarator.text;
+            }
+        } else {
+            for (let i = 0; i < declaratorNode.childCount; i++) {
+                const child = declaratorNode.child(i);
+                if (child && child.type === 'identifier') {
+                    name = child.text;
+                    break;
+                }
             }
         }
-        
-        return '';
+
+        if (!name) return null;
+
+        return { name, type };
     }
 }

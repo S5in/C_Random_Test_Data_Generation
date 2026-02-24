@@ -15,15 +15,18 @@
     "commands": [
       {
         "command": "random-test-data-generation.generateTest",
-        "title": "Generate Google Tests"
+        "title": "Generate Tests for This Function",
+        "category": "C Test Generator"
       },
       {
         "command": "random-test-data-generation.buildAndRun",
-        "title": "Build & Run Tests"
+        "title": "Build & Run Tests",
+        "category": "C Test Generator"
       },
       {
         "command": "random-test-data-generation.cleanBuild",
-        "title": "Clean Build Directory"
+        "title": "Clean Build Directory",
+        "category": "C Test Generator"
       }
     ],
     "menus": {
@@ -31,15 +34,23 @@
         {
           "when": "resourceLangId == c",
           "command": "random-test-data-generation.generateTest",
-          "group": "testing"
+          "group": "testing@1"
         },
         {
           "when": "resourceLangId == c",
           "command": "random-test-data-generation.buildAndRun",
-          "group": "testing"
+          "group": "testing@2"
         }
       ]
-    }
+    },
+    "keybindings": [
+      {
+        "command": "random-test-data-generation.generateTest",
+        "key": "ctrl+shift+t",
+        "mac": "cmd+shift+t",
+        "when": "editorTextFocus && resourceLangId == c"
+      }
+    ]
   },
   "scripts": {
     "vscode:prepublish": "npm run package",

@@ -253,14 +253,14 @@ export function isSupportedType(type: string): boolean {
  * Represents a complete test case with values for all parameters.
  */
 export interface BoundarySet {
-    /** Test case name (e.g., "MinValues", "MaxValues") */
-    name: string;
+    /** Human-readable label for test name (e.g., "MinValues", "MaxValues") */
+    label: string;
     
     /** Human-readable description */
     description: string;
     
-    /** Map of parameter name → C literal value */
-    values: Map<string, string>;
+    /** Array of C literal values (one per parameter, in order) */
+    values: string[];
     
     /** Headers needed for this test case */
     requiredHeaders: string[];
@@ -286,9 +286,9 @@ export function generateBoundarySets(params: FunctionParameter[]): BoundarySet[]
     if (supportedParams.length === 0) {
         // No supported params → generate one basic test with TODOs
         return [{
-            name: 'BasicTest',
+            label: 'BasicTest',
             description: 'Basic test case (manual initialization required)',
-            values: new Map(params.map(p => [p.name, '/* TODO: initialize */'])),
+            values: params.map(() => '/* TODO: initialize */'),
             requiredHeaders: []
         }];
     }
@@ -297,40 +297,40 @@ export function generateBoundarySets(params: FunctionParameter[]): BoundarySet[]
     
     // Helper to create a boundary set for a given boundary class
     const createSet = (
-        name: string,
+        label: string,
         description: string,
         selector: (boundaries: BoundaryValue[]) => BoundaryValue | undefined
     ) => {
-        const values = new Map<string, string>();
+        const values: string[] = [];
         const headers = new Set<string>();
         
         for (const param of params) {
             if (isPointerOrArray(param.type)) {
-                values.set(param.name, '/* TODO: initialize pointer/array */');
+                values.push('/* TODO: initialize pointer/array */');
                 continue;
             }
             
             const boundaries = getBoundaryValues(param.type);
             if (boundaries.length === 0) {
-                values.set(param.name, '/* TODO: initialize */');
+                values.push('/* TODO: initialize */');
                 continue;
             }
             
             const boundary = selector(boundaries);
             if (boundary) {
-                values.set(param.name, boundary.literal);
+                values.push(boundary.literal);
                 if (boundary.requiresHeader) {
                     headers.add(boundary.requiresHeader);
                 }
             } else {
                 // Fallback to zero if selector didn't find a match
                 const zero = boundaries.find(b => b.label === 'zero');
-                values.set(param.name, zero?.literal || '0');
+                values.push(zero?.literal || '0');
             }
         }
         
         sets.push({
-            name,
+            label,
             description,
             values,
             requiredHeaders: Array.from(headers)
