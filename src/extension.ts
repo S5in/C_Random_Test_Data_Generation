@@ -178,19 +178,7 @@ async function generateTests(parser: any): Promise<{
         // Write test file
         await fs.promises.writeFile(testFilePath, testCode, 'utf8');
 
-        // Write CMakeLists.txt (ask if file already exists)
-        if (fs.existsSync(cmakeFilePath)) {
-            const overwrite = await vscode.window.showWarningMessage(
-                'CMakeLists.txt already exists. Overwrite?',
-                'Yes', 'No'
-            );
-            
-            if (overwrite === 'Yes') {
-                await fs.promises.writeFile(cmakeFilePath, cmakeContent, 'utf8');
-            }
-        } else {
-            await fs.promises.writeFile(cmakeFilePath, cmakeContent, 'utf8');
-        }
+        await fs.promises.writeFile(cmakeFilePath, cmakeContent, 'utf8');
 
         // Open the test file
         const testDocument = await vscode.workspace.openTextDocument(testFilePath);
