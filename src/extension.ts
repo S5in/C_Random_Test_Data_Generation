@@ -14,6 +14,7 @@ import { GlobalUsageAnalyzer } from './parser/globalUsageAnalyzer';
 import { TestGenerator, TestCaseInfo } from './generator/testGenerator';
 import { CMakeGenerator } from './generator/cmakeGenerator';
 import { BuildRunner } from './build/buildRunner';
+import { ExpectedValuesWebview } from './ui/expectedValuesWebview';
 
 let buildRunner: BuildRunner;
 
@@ -73,12 +74,20 @@ export async function activate(context: vscode.ExtensionContext) {
                         const choice = await vscode.window.showInformationMessage(
                             `✅ Generated ${result.totalTests} test case(s) for ${result.functionName}()`,
                             'Fill Expected Values',
-                            "Skip (I'll Do It Later)",
-                            'Build & Run'
+                            'Build & Run',
+                            'View Tests'
                         );
 
                         if (choice === 'Fill Expected Values') {
-                            await fillExpectedValues(result.testFilePath, result.testCases);
+                            const shouldBuildAndRun = await ExpectedValuesWebview.show(result.testFilePath, result.testCases);
+                            
+                            console.log('Webview closed. shouldBuildAndRun:', shouldBuildAndRun);
+                            
+                            // If user chose "Save & Build & Run", run the tests
+                            if (shouldBuildAndRun) {
+                                console.log('Starting build and run...');
+                                await buildRunner.buildAndRun(result.projectDir, result.executableName);
+                            }
                         } else if (choice === 'Build & Run') {
                             await buildRunner.buildAndRun(result.projectDir, result.executableName);
                         }

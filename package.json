@@ -35,11 +35,6 @@
           "when": "resourceLangId == c",
           "command": "random-test-data-generation.generateTest",
           "group": "testing@1"
-        },
-        {
-          "when": "resourceLangId == c",
-          "command": "random-test-data-generation.buildAndRun",
-          "group": "testing@2"
         }
       ]
     },
