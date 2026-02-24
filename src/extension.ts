@@ -11,11 +11,18 @@ import * as fs from 'fs';
 import { FunctionExtractor } from './parser/functionExtractor';
 import { GlobalExtractor } from './parser/globalExtractor';
 import { GlobalUsageAnalyzer } from './parser/globalUsageAnalyzer';
-import { TestGenerator } from './generator/testGenerator';
+import { TestGenerator, TestCaseInfo } from './generator/testGenerator';
 import { CMakeGenerator } from './generator/cmakeGenerator';
 import { BuildRunner } from './build/buildRunner';
 
 let buildRunner: BuildRunner;
+
+/**
+ * Escape special regex characters in a string
+ */
+function escapeRegex(str: string): string {
+    return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
 
 /**
  * Extension activation
@@ -65,11 +72,14 @@ export async function activate(context: vscode.ExtensionContext) {
                         // Show success message with options
                         const choice = await vscode.window.showInformationMessage(
                             `✅ Generated ${result.totalTests} test case(s) for ${result.functionName}()`,
-                            'View Tests',
+                            'Fill Expected Values',
+                            "Skip (I'll Do It Later)",
                             'Build & Run'
                         );
 
-                        if (choice === 'Build & Run') {
+                        if (choice === 'Fill Expected Values') {
+                            await fillExpectedValues(result.testFilePath, result.testCases);
+                        } else if (choice === 'Build & Run') {
                             await buildRunner.buildAndRun(result.projectDir, result.executableName);
                         }
                     }
@@ -103,10 +113,8 @@ export async function activate(context: vscode.ExtensionContext) {
                     let executableName: string;
                     
                     if (sourceFileName.endsWith('_test.cpp')) {
-                        // User is in test file: test_math_test.cpp -> test_math_tests
                         executableName = sourceFileName.replace('_test.cpp', '_tests');
                     } else if (sourceFileName.endsWith('.c')) {
-                        // User is in source file: test_math.c -> test_math_tests
                         executableName = sourceFileName.replace('.c', '_tests');
                     } else {
                         vscode.window.showWarningMessage('Open a .c or _test.cpp file to build tests');
@@ -171,6 +179,8 @@ async function generateTestForCurrentFunction(parser: any): Promise<{
     functionName: string;
     projectDir: string;
     executableName: string;
+    testFilePath: string;
+    testCases: TestCaseInfo[];
 } | null> {
     
     // ========================================
@@ -184,7 +194,6 @@ async function generateTestForCurrentFunction(parser: any): Promise<{
 
     const document = editor.document;
     
-    // Check language
     if (document.languageId !== 'c') {
         vscode.window.showWarningMessage(
             'This command only works with C files (.c extension)'
@@ -192,7 +201,6 @@ async function generateTestForCurrentFunction(parser: any): Promise<{
         return null;
     }
 
-    // Check if file is saved
     if (document.isDirty) {
         const save = await vscode.window.showWarningMessage(
             'File has unsaved changes. Save before generating tests?',
@@ -215,15 +223,12 @@ async function generateTestForCurrentFunction(parser: any): Promise<{
 
     console.log(`Searching for function at line ${cursorLine}`);
 
-    // Parse the entire file
     const code = document.getText();
     const tree = parser.parse(code);
 
-    // Find function at cursor position
     const targetFunction = FunctionExtractor.findFunctionAtLine(tree, cursorLine);
 
     if (!targetFunction) {
-        // Show helpful error with instructions
         vscode.window.showWarningMessage(
             '❌ No function found at cursor position.\n\n' +
             'Place your cursor inside a function and try again.\n\n' +
@@ -238,7 +243,6 @@ async function generateTestForCurrentFunction(parser: any): Promise<{
 
     console.log(`Found function: ${targetFunction.name}()`);
 
-    // Show which function we're generating for
     vscode.window.showInformationMessage(
         `🎯 Generating tests for: ${targetFunction.name}()`
     );
@@ -250,14 +254,12 @@ async function generateTestForCurrentFunction(parser: any): Promise<{
     
     console.log(`Found ${globals.length} global variable(s)`);
 
-    // Analyze which globals THIS function uses
     const usedGlobals = GlobalUsageAnalyzer.analyzeFunction(
         targetFunction,
         globals,
         code
     );
 
-    // Log summary if globals are used
     if (usedGlobals.length > 0) {
         const summary = GlobalUsageAnalyzer.getFunctionGlobalSummary(targetFunction, usedGlobals);
         console.log(summary);
@@ -268,13 +270,14 @@ async function generateTestForCurrentFunction(parser: any): Promise<{
     }
 
     // ========================================
-    // Step 4: Generate Test Code
+    // Step 4: Generate Test Code + Case Info
     // ========================================
     const sourceFileName = path.basename(document.fileName);
     
     console.log('Generating test code...');
     
-    const testCode = TestGenerator.generateTestsForFunction(
+    // FIX: Use generateTestsWithCaseInfo to get both code AND case metadata
+    const { testCode, testCases } = TestGenerator.generateTestsWithCaseInfo(
         targetFunction,
         sourceFileName,
         usedGlobals
@@ -300,30 +303,22 @@ async function generateTestForCurrentFunction(parser: any): Promise<{
     const cmakeFilePath = path.join(projectDir, 'CMakeLists.txt');
 
     try {
-        // Write test file
         await fs.promises.writeFile(testFilePath, testCode, 'utf8');
         console.log(`Test file written: ${testFilePath}`);
 
-        // Write CMakeLists.txt (always overwrite - it's auto-generated)
         await fs.promises.writeFile(cmakeFilePath, cmakeContent, 'utf8');
         console.log(`CMakeLists.txt written: ${cmakeFilePath}`);
 
-        // ========================================
-        // Step 7: Open Test File in Editor
-        // ========================================
         const testDocument = await vscode.workspace.openTextDocument(testFilePath);
         await vscode.window.showTextDocument(testDocument, {
-            viewColumn: vscode.ViewColumn.Beside,  // Open side-by-side
+            viewColumn: vscode.ViewColumn.Beside,
             preview: false
         });
 
         // ========================================
-        // Step 8: Calculate and Return Statistics
+        // Step 7: Use ACTUAL test count (not estimate)
         // ========================================
-        const totalTests = GlobalUsageAnalyzer.estimateTestCount(
-            targetFunction,
-            usedGlobals
-        );
+        const totalTests = testCases.length;
 
         const executableName = testFileName.replace('_test.cpp', '_tests');
 
@@ -333,7 +328,9 @@ async function generateTestForCurrentFunction(parser: any): Promise<{
             totalTests,
             functionName: targetFunction.name,
             projectDir,
-            executableName
+            executableName,
+            testFilePath,
+            testCases
         };
 
     } catch (error) {
@@ -343,6 +340,141 @@ async function generateTestForCurrentFunction(parser: any): Promise<{
             `Make sure you have write permissions in: ${projectDir}`
         );
         return null;
+    }
+}
+
+/**
+ * Interactive expected value filling.
+ * Prompts developer for each test case's expected output,
+ * replaces FAIL() placeholders with EXPECT_EQ().
+ * 
+ * FIX: Uses test-name-specific regex so that "skip" doesn't
+ * cause subsequent answers to shift into wrong test blocks.
+ */
+async function fillExpectedValues(testFilePath: string, testCases: TestCaseInfo[]): Promise<void> {
+    let fileContent = await fs.promises.readFile(testFilePath, 'utf8');
+    let filled = 0;
+
+    await vscode.window.withProgress(
+        {
+            location: vscode.ProgressLocation.Notification,
+            title: 'Fill Expected Values',
+            cancellable: true
+        },
+        async (progress, token) => {
+            for (let i = 0; i < testCases.length; i++) {
+                if (token.isCancellationRequested) {
+                    break;
+                }
+
+                const tc = testCases[i];
+                progress.report({
+                    message: `(${i + 1}/${testCases.length}) ${tc.testName}`,
+                    increment: (1 / testCases.length) * 100
+                });
+
+                // Build a description of the inputs
+                let inputDesc = tc.inputs;
+                if (tc.paramValues.length > 0) {
+                    inputDesc += ` | Params: ${tc.paramValues.map(p => `${p.name}=${p.value}`).join(', ')}`;
+                }
+                if (tc.globalValues && tc.globalValues.length > 0) {
+                    inputDesc += ` | Globals: ${tc.globalValues.map(g => `${g.name}=${g.value}`).join(', ')}`;
+                }
+
+                const expected = await vscode.window.showInputBox({
+                    title: `Expected value for ${tc.testName}`,
+                    prompt: `What should the function return for these inputs?\n\n${tc.testName}\nInputs: ${inputDesc}\n\nEnter:\n  • The expected return value (e.g., 84, -2, 0.5)\n  • 'skip' to leave as FAIL() (you'll fill manually)\n  • 'overflow' if this case causes overflow (will use SUCCEED())\n  • 'undefined' if behavior is undefined`,
+                    placeHolder: `Inputs: ${inputDesc}`,
+                    ignoreFocusOut: true,
+                    validateInput: (value) => {
+                        if (!value || value.trim() === '') {
+                            return 'Enter a value, or type "skip" to skip this test';
+                        }
+                        return null;
+                    }
+                });
+
+                if (expected === undefined) {
+                    // User pressed Escape - stop filling
+                    break;
+                }
+
+                if (expected.trim().toLowerCase() === 'skip' || expected.trim() === '') {
+                    continue;
+                }
+
+                // ============================================================
+                // FIX: Use a test-name-specific regex!
+                //
+                // Instead of matching the FIRST generic FAIL() in the file,
+                // we find the FAIL() that appears inside the specific TEST
+                // block matching this test case's name.
+                //
+                // The regex finds:
+                //   TEST(..., <testName>) {
+                //     ... (any content) ...
+                //     // TODO: Provide expected value
+                //     FAIL() << "Expected value needed. Got: " << result;
+                //
+                // And replaces only the TODO+FAIL within THAT block.
+                // ============================================================
+                const escapedTestName = escapeRegex(tc.testName);
+
+                // This regex captures everything from the TEST declaration
+                // up to and including the FAIL line, replacing only the
+                // TODO comment + FAIL assertion within the correct block.
+                const testBlockPattern = new RegExp(
+                    `(TEST(?:_F)?\\([^)]*,\\s*${escapedTestName}\\)` +  // Match TEST(..., testName)
+                    `[\\s\\S]*?)` +                                       // Capture everything up to...
+                    `// TODO: Provide expected value\\s*\\n\\s*` +        // the TODO comment
+                    `FAIL\\(\\) << "Expected value needed\\. Got: " << result;`  // and the FAIL line
+                );
+
+                const keyword = expected.trim().toLowerCase();
+                if (keyword === 'overflow' || keyword === 'undefined') {
+                    fileContent = fileContent.replace(
+                        testBlockPattern,
+                        `$1SUCCEED() << "${expected.trim()} behavior: " << result;`
+                    );
+                    filled++;
+                } else {
+                    fileContent = fileContent.replace(
+                        testBlockPattern,
+                        `$1EXPECT_EQ(result, ${expected.trim()});`
+                    );
+                    filled++;
+                }
+            }
+        }
+    );
+
+    const updatedCount = filled;
+    const skippedCount = testCases.length - filled;
+
+    if (updatedCount > 0) {
+        await fs.promises.writeFile(testFilePath, fileContent, 'utf8');
+
+        const choice = await vscode.window.showInformationMessage(
+            `✅ Updated ${updatedCount} test(s), skipped ${skippedCount}`,
+            'Build & Run Now',
+            'Just Save'
+        );
+
+        // Reload the file in editor
+        const testDocument = await vscode.workspace.openTextDocument(testFilePath);
+        await vscode.window.showTextDocument(testDocument, {
+            viewColumn: vscode.ViewColumn.Beside,
+            preview: false
+        });
+
+        if (choice === 'Build & Run Now') {
+            const executableName = path.basename(testFilePath).replace('_test.cpp', '_tests');
+            const projectDir = path.dirname(testFilePath);
+            await buildRunner.buildAndRun(projectDir, executableName);
+        }
+    } else {
+        vscode.window.showInformationMessage('No expected values provided');
     }
 }
 

@@ -5,6 +5,7 @@
  */
 
 import { FunctionInfo, GlobalVariable } from '../types';
+import { generateBoundarySets, getBoundariesForType } from '../generator/boundaryValues';
 
 export class GlobalUsageAnalyzer {
     /**
@@ -75,23 +76,31 @@ export class GlobalUsageAnalyzer {
     }
 
     /**
-     * Estimate test count for a function
+     * Estimate test count for a function.
+     * Uses actual boundary set generation to count accurately.
      */
     static estimateTestCount(
         func: FunctionInfo,
-        usedGlobals: GlobalVariable[],
-        boundariesPerType: number = 5
+        usedGlobals: GlobalVariable[]
     ): number {
         
         if (usedGlobals.length === 0) {
-            // No globals: regular tests
-            return boundariesPerType * Math.max(1, func.parameters.length);
+            // No globals: one test per boundary class (not per parameter)
+            return generateBoundarySets(func.parameters).length;
         }
 
         // With globals:
-        const paramTests = boundariesPerType * Math.max(1, func.parameters.length);
-        const globalTests = boundariesPerType * usedGlobals.length;
-        const combinationTests = 3;
+        // Parameter boundary tests: one per boundary class
+        const paramTests = generateBoundarySets(func.parameters).length;
+        
+        // Global boundary tests: one per boundary value per global
+        let globalTests = 0;
+        for (const global of usedGlobals) {
+            globalTests += getBoundariesForType(global.type).length;
+        }
+        
+        // Combination tests: AllMinimums + AllMaximums + (ParamMin_GlobalMax if both exist)
+        const combinationTests = (func.parameters.length > 0 && usedGlobals.length > 0) ? 3 : 2;
 
         return paramTests + globalTests + combinationTests;
     }
