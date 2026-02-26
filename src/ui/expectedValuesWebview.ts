@@ -1,81 +1,94 @@
 /**
  * Webview for filling expected test values
  * Provides a rich UI for entering expected values for generated tests
+ * NOW WITH CUSTOM TESTS SUPPORT!
  */
 
 import * as vscode from 'vscode';
 import * as fs from 'fs';
 import { TestCaseInfo } from '../generator/testGenerator';
 
+interface CustomTest {
+    name: string;
+    params: { [key: string]: string };
+    expected: string;
+}
+
 export class ExpectedValuesWebview {
     /**
      * Show webview panel for filling expected values
+     * @returns Promise that resolves to true if user wants to build & run, false otherwise
      */
-    /**
- /**
- * Show webview panel for filling expected values
- * @returns Promise that resolves to true if user wants to build & run, false otherwise
- */
-static async show(testFilePath: string, testCases: TestCaseInfo[]): Promise<boolean> {
-    return new Promise((resolve) => {
-        const panel = vscode.window.createWebviewPanel(
-            'fillExpectedValues',
-            '✨ Fill Expected Values',
-            vscode.ViewColumn.Two,
-            {
-                enableScripts: true,
-                retainContextWhenHidden: true
-            }
-        );
-
-        panel.webview.html = this.getHtmlContent(testCases);
-
-        // Track if we already resolved
-        let resolved = false;
-
-        // Handle messages from webview
-        panel.webview.onDidReceiveMessage(
-            async message => {
-                if (resolved) return;
-
-                switch (message.command) {
-                    case 'save':
-                        await this.saveExpectedValues(testFilePath, message.values);
-                        resolved = true;
-                        panel.dispose();
-                        vscode.window.showInformationMessage('✅ Expected values saved! Building and running tests...');
-                        resolve(true); // User wants to build & run
-                        return;
-                    case 'saveOnly':
-                        await this.saveExpectedValues(testFilePath, message.values);
-                        resolved = true;
-                        panel.dispose();
-                        vscode.window.showInformationMessage('✅ Expected values saved!');
-                        resolve(false); // Don't build & run
-                        return;
-                    case 'skip':
-                        resolved = true;
-                        panel.dispose();
-                        resolve(false); // Don't build & run
-                        return;
+    static async show(
+        testFilePath: string, 
+        testCases: TestCaseInfo[],
+        functionName: string,
+        paramNames: string[]
+    ): Promise<boolean> {
+        return new Promise((resolve) => {
+            const panel = vscode.window.createWebviewPanel(
+                'fillExpectedValues',
+                '✨ Fill Expected Values',
+                vscode.ViewColumn.Two,
+                {
+                    enableScripts: true,
+                    retainContextWhenHidden: true
                 }
-            }
-        );
+            );
 
-        // Handle panel disposal
-        panel.onDidDispose(() => {
-            if (!resolved) {
-                resolved = true;
-                resolve(false);
-            }
+            panel.webview.html = this.getHtmlContent(testCases, functionName, paramNames);
+
+            let resolved = false;
+
+            panel.webview.onDidReceiveMessage(
+                async message => {
+                    if (resolved) return;
+
+                    switch (message.command) {
+                        case 'save':
+                            await this.saveExpectedValues(testFilePath, message.values);
+                            await this.saveCustomTests(testFilePath, functionName, paramNames, message.customTests || []);
+                            resolved = true;
+                            panel.dispose();
+                            const totalTests = message.values.length + (message.customTests?.length || 0);
+                            vscode.window.showInformationMessage(`✅ Saved ${totalTests} test(s)! Building and running...`);
+                            resolve(true);
+                            return;
+                        case 'saveOnly':
+                            await this.saveExpectedValues(testFilePath, message.values);
+                            await this.saveCustomTests(testFilePath, functionName, paramNames, message.customTests || []);
+                            resolved = true;
+                            panel.dispose();
+                            const total = message.values.length + (message.customTests?.length || 0);
+                            vscode.window.showInformationMessage(`✅ Saved ${total} test(s)!`);
+                            resolve(false);
+                            return;
+                        case 'skip':
+                            resolved = true;
+                            panel.dispose();
+                            resolve(false);
+                            return;
+                    }
+                }
+            );
+
+            panel.onDidDispose(() => {
+                if (!resolved) {
+                    resolved = true;
+                    resolve(false);
+                }
+            });
         });
-    });
-}
+    }
 
     /**
      * Generate HTML content for the webview
      */
-    private static getHtmlContent(testCases: TestCaseInfo[]): string {
+    private static getHtmlContent(
+        testCases: TestCaseInfo[], 
+        functionName: string,
+        paramNames: string[]
+    ): string {
         const testCaseHtml = testCases.map((tc, index) => `
             <div class="test-case">
                 <div class="test-header">
@@ -104,6 +117,10 @@ static async show(testFilePath: string, testCases: TestCaseInfo[]): Promise<bool
                 </div>
             </div>
         `).join('');
+
+        const paramInputs = paramNames.map(p => 
+            `<input type="text" class="custom-param-input" data-param="${p}" placeholder="${p}" />`
+        ).join('\n                ');
 
         return `<!DOCTYPE html>
 <html lang="en">
@@ -136,12 +153,73 @@ static async show(testFilePath: string, testCases: TestCaseInfo[]): Promise<bool
             font-size: 24px;
             font-weight: 600;
             margin-bottom: 8px;
-            color: var(--vscode-foreground);
         }
 
         .header p {
             color: var(--vscode-descriptionForeground);
             font-size: 14px;
+        }
+
+        .tabs {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+            border-bottom: 2px solid var(--vscode-textSeparator-foreground);
+        }
+
+        .tab {
+            padding: 10px 20px;
+            background: transparent;
+            border: none;
+            color: var(--vscode-descriptionForeground);
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 500;
+            border-bottom: 3px solid transparent;
+            transition: all 0.2s;
+        }
+
+        .tab:hover {
+            color: var(--vscode-foreground);
+        }
+
+        .tab.active {
+            color: var(--vscode-textLink-foreground);
+            border-bottom-color: var(--vscode-textLink-foreground);
+        }
+
+        .tab-content {
+            display: none;
+        }
+
+        .tab-content.active {
+            display: block;
+        }
+
+        .stats {
+            display: flex;
+            gap: 20px;
+            margin-top: 10px;
+            padding: 15px;
+            background: var(--vscode-textCodeBlock-background);
+            border-radius: 4px;
+        }
+
+        .stat-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .stat-label {
+            color: var(--vscode-descriptionForeground);
+            font-size: 13px;
+        }
+
+        .stat-value {
+            color: var(--vscode-textLink-foreground);
+            font-weight: 600;
+            font-size: 16px;
         }
 
         .test-case {
@@ -209,7 +287,10 @@ static async show(testFilePath: string, testCases: TestCaseInfo[]): Promise<bool
             font-size: 13px;
         }
 
-        input.expected-input {
+        input.expected-input,
+        input.custom-param-input,
+        input.custom-name-input,
+        input.custom-expected-input {
             width: 100%;
             padding: 10px 12px;
             background: var(--vscode-input-background);
@@ -221,14 +302,35 @@ static async show(testFilePath: string, testCases: TestCaseInfo[]): Promise<bool
             transition: all 0.2s ease;
         }
 
-        input.expected-input:focus {
+        input:focus {
             outline: none;
             border-color: var(--vscode-focusBorder);
             box-shadow: 0 0 0 1px var(--vscode-focusBorder);
         }
 
-        input.expected-input::placeholder {
+        input::placeholder {
             color: var(--vscode-input-placeholderForeground);
+        }
+
+        .custom-test-row {
+            display: grid;
+            grid-template-columns: 150px ${paramNames.map(() => '1fr').join(' ')} 1fr 40px;
+            gap: 10px;
+            margin: 15px 0;
+            align-items: center;
+            padding: 15px;
+            background: var(--vscode-editor-inactiveSelectionBackground);
+            border-radius: 6px;
+        }
+
+        .custom-test-header {
+            display: grid;
+            grid-template-columns: 150px ${paramNames.map(() => '1fr').join(' ')} 1fr 40px;
+            gap: 10px;
+            margin: 15px 0;
+            font-weight: 600;
+            color: var(--vscode-descriptionForeground);
+            font-size: 13px;
         }
 
         .button-group {
@@ -274,60 +376,97 @@ static async show(testFilePath: string, testCases: TestCaseInfo[]): Promise<bool
             transform: scale(0.98);
         }
 
-        .empty-state {
+        .btn-small {
+            padding: 5px 10px;
+            font-size: 12px;
+        }
+
+        .remove-btn {
+            background: var(--vscode-button-secondaryBackground);
+            color: var(--vscode-button-secondaryForeground);
+            border: none;
+            border-radius: 4px;
+            padding: 8px;
+            cursor: pointer;
+            font-size: 16px;
+        }
+
+        .remove-btn:hover {
+            background: var(--vscode-errorForeground);
+            color: white;
+        }
+
+        .empty-custom-tests {
             text-align: center;
             padding: 40px;
             color: var(--vscode-descriptionForeground);
         }
 
-        .stats {
-            display: flex;
-            gap: 20px;
-            margin-top: 10px;
-            padding: 15px;
-            background: var(--vscode-textCodeBlock-background);
-            border-radius: 4px;
-        }
-
-        .stat-item {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-        }
-
-        .stat-label {
-            color: var(--vscode-descriptionForeground);
-            font-size: 13px;
-        }
-
-        .stat-value {
-            color: var(--vscode-textLink-foreground);
-            font-weight: 600;
-            font-size: 16px;
+        .add-custom-btn {
+            margin: 20px 0;
         }
     </style>
 </head>
 <body>
     <div class="header">
         <h1>✨ Fill Expected Values</h1>
-        <p>Review the test cases below and provide expected output values.</p>
-        <p style="margin-top: 8px; font-size: 13px;">
-            💡 <strong>Tip:</strong> Enter numbers (e.g., <code>42</code>, <code>-100</code>), 
-            or special keywords: <code>overflow</code>, <code>undefined</code>, <code>skip</code>
-        </p>
+        <p>Review boundary tests and add custom test cases with your own input values</p>
         <div class="stats">
             <div class="stat-item">
-                <span class="stat-label">Total test cases:</span>
+                <span class="stat-label">Boundary tests:</span>
                 <span class="stat-value">${testCases.length}</span>
+            </div>
+            <div class="stat-item">
+                <span class="stat-label">Custom tests:</span>
+                <span class="stat-value" id="custom-count">0</span>
             </div>
         </div>
     </div>
 
-    <div class="test-cases">
-        ${testCaseHtml}
+    <div class="tabs">
+        <button class="tab active" onclick="switchTab('boundary')">
+            🧪 Boundary Tests (${testCases.length})
+        </button>
+        <button class="tab" onclick="switchTab('custom')">
+            ➕ Custom Tests (<span id="custom-tab-count">0</span>)
+        </button>
     </div>
 
-   <div class="button-group">
+    <!-- Tab 1: Boundary Tests -->
+    <div id="boundary-tab" class="tab-content active">
+        <p style="color: var(--vscode-descriptionForeground); margin-bottom: 15px;">
+            💡 <strong>Tip:</strong> Enter numbers (e.g., <code>42</code>, <code>-100</code>), 
+            or special keywords: <code>overflow</code>, <code>undefined</code>, <code>skip</code>
+        </p>
+        <div class="test-cases">
+            ${testCaseHtml}
+        </div>
+    </div>
+
+    <!-- Tab 2: Custom Tests -->
+    <div id="custom-tab" class="tab-content">
+        <p style="color: var(--vscode-descriptionForeground); margin-bottom: 15px;">
+            ➕ Add your own test cases with custom input values
+        </p>
+
+        <div class="custom-test-header">
+            <div>Test Name</div>
+            ${paramNames.map(p => `<div>${p}</div>`).join('')}
+            <div>Expected</div>
+            <div></div>
+        </div>
+
+        <div id="custom-tests-container">
+            <!-- Custom tests will be added here -->
+        </div>
+
+        <button class="btn btn-secondary add-custom-btn" onclick="addCustomTest()">
+            <span>➕</span>
+            <span>Add Custom Test</span>
+        </button>
+    </div>
+
+    <div class="button-group">
         <button class="btn btn-primary" onclick="saveAndRun()">
             <span>🚀</span>
             <span>Save & Build & Run</span>
@@ -344,8 +483,61 @@ static async show(testFilePath: string, testCases: TestCaseInfo[]): Promise<bool
 
     <script>
         const vscode = acquireVsCodeApi();
+        let customTestCounter = 0;
+        const paramNames = ${JSON.stringify(paramNames)};
 
-        function collectValues() {
+        function switchTab(tabName) {
+            // Update tab buttons
+            document.querySelectorAll('.tab').forEach(tab => tab.classList.remove('active'));
+            event.target.classList.add('active');
+
+            // Update tab content
+            document.querySelectorAll('.tab-content').forEach(content => content.classList.remove('active'));
+            document.getElementById(tabName + '-tab').classList.add('active');
+        }
+
+        function addCustomTest() {
+            const container = document.getElementById('custom-tests-container');
+            const testId = customTestCounter++;
+            
+            // Generate unique timestamp-based name
+            const timestamp = Date.now().toString().slice(-6);
+            const defaultName = 'Custom_' + timestamp + '_' + (testId + 1);
+
+            const row = document.createElement('div');
+            row.className = 'custom-test-row';
+            row.setAttribute('data-custom-id', testId);
+            
+            let html = '<input type="text" class="custom-name-input" placeholder="' + defaultName + '" value="' + defaultName + '" />';
+            
+            paramNames.forEach(param => {
+                html += '<input type="text" class="custom-param-input" data-param="' + param + '" placeholder="0" />';
+            });
+            
+            html += '<input type="text" class="custom-expected-input" placeholder="0" />';
+            html += '<button class="remove-btn" onclick="removeCustomTest(' + testId + ')">✖</button>';
+            
+            row.innerHTML = html;
+            container.appendChild(row);
+
+            updateCustomCount();
+        }
+
+        function removeCustomTest(testId) {
+            const row = document.querySelector('[data-custom-id="' + testId + '"]');
+            if (row) {
+                row.remove();
+                updateCustomCount();
+            }
+        }
+
+        function updateCustomCount() {
+            const count = document.querySelectorAll('.custom-test-row').length;
+            document.getElementById('custom-count').textContent = count;
+            document.getElementById('custom-tab-count').textContent = count;
+        }
+
+        function collectBoundaryValues() {
             const inputs = document.querySelectorAll('.expected-input');
             const values = [];
             
@@ -362,19 +554,44 @@ static async show(testFilePath: string, testCases: TestCaseInfo[]): Promise<bool
             return values;
         }
 
+        function collectCustomTests() {
+            const rows = document.querySelectorAll('.custom-test-row');
+            const customTests = [];
+
+            rows.forEach((row, index) => {
+                const name = row.querySelector('.custom-name-input').value.trim() || ('CustomTest' + (index + 1));
+                const paramInputs = row.querySelectorAll('.custom-param-input');
+                const expected = row.querySelector('.custom-expected-input').value.trim() || '0';
+
+                const params = {};
+                paramInputs.forEach(input => {
+                    const paramName = input.getAttribute('data-param');
+                    params[paramName] = input.value.trim() || '0';
+                });
+
+                customTests.push({ name, params, expected });
+            });
+
+            return customTests;
+        }
+
         function saveAndRun() {
-            const values = collectValues();
+            const values = collectBoundaryValues();
+            const customTests = collectCustomTests();
             vscode.postMessage({
                 command: 'save',
-                values: values
+                values: values,
+                customTests: customTests
             });
         }
 
         function saveOnly() {
-            const values = collectValues();
+            const values = collectBoundaryValues();
+            const customTests = collectCustomTests();
             vscode.postMessage({
                 command: 'saveOnly',
-                values: values
+                values: values,
+                customTests: customTests
             });
         }
 
@@ -399,8 +616,6 @@ static async show(testFilePath: string, testCases: TestCaseInfo[]): Promise<bool
                     e.preventDefault();
                     if (index < inputs.length - 1) {
                         inputs[index + 1].focus();
-                    } else {
-                        saveAndRun();
                     }
                 }
             });
@@ -411,66 +626,159 @@ static async show(testFilePath: string, testCases: TestCaseInfo[]): Promise<bool
     }
 
     /**
-     * Save expected values to test file
+     * Save expected values to test file (existing functionality)
      */
-    /**
- * Save expected values to test file
- */
-private static async saveExpectedValues(
-    testFilePath: string,
-    values: Array<{ index: number; value: string }>
-): Promise<void> {
-    if (values.length === 0) {
-        return;
-    }
+    private static async saveExpectedValues(
+        testFilePath: string,
+        values: Array<{ index: number; value: string }>
+    ): Promise<void> {
+        if (values.length === 0) {
+            return;
+        }
 
-    try {
-        let content = await fs.promises.readFile(testFilePath, 'utf8');
+        try {
+            let content = await fs.promises.readFile(testFilePath, 'utf8');
+            const lines = content.split('\n');
+            let testIndex = -1;
 
-        // Replace FAIL() lines with EXPECT_EQ or special handling
-        const lines = content.split('\n');
-        let testIndex = -1;
+            for (let i = 0; i < lines.length; i++) {
+                const line = lines[i];
 
-        for (let i = 0; i < lines.length; i++) {
-            const line = lines[i];
+                if (line.includes('TEST(') || line.includes('TEST_F(')) {
+                    testIndex++;
+                }
 
-            // Detect start of new test
-            if (line.includes('TEST(') || line.includes('TEST_F(')) {
-                testIndex++;
-            }
+                if (line.includes('// TODO: Provide expected value')) {
+                    const valueEntry = values.find(v => v.index === testIndex);
+                    if (valueEntry && i + 1 < lines.length && lines[i + 1].includes('FAIL()')) {
+                        const indent = lines[i + 1].match(/^\s*/)?.[0] || '    ';
+                        const trimmedValue = valueEntry.value.trim().toLowerCase();
 
-            // Find TODO comment line followed by FAIL()
-            if (line.includes('// TODO: Provide expected value')) {
-                const valueEntry = values.find(v => v.index === testIndex);
-                if (valueEntry && i + 1 < lines.length && lines[i + 1].includes('FAIL()')) {
-                    const indent = lines[i + 1].match(/^\s*/)?.[0] || '    ';
-                    const trimmedValue = valueEntry.value.trim().toLowerCase();
-
-                    // Handle special keywords
-                    if (trimmedValue === 'overflow') {
-                        lines[i] = `${indent}// Expected: Overflow behavior`;
-                        lines[i + 1] = `${indent}SUCCEED() << "Overflow case - result: " << result;`;
-                    } else if (trimmedValue === 'undefined' || trimmedValue === 'ub') {
-                        lines[i] = `${indent}// Expected: Undefined behavior`;
-                        lines[i + 1] = `${indent}SUCCEED() << "Undefined behavior case - result: " << result;`;
-                    } else if (trimmedValue === 'skip' || trimmedValue === '') {
-                        // Keep FAIL() as is
-                        continue;
-                    } else {
-                        // Normal expected value - remove TODO, replace FAIL with EXPECT_EQ
-                        lines[i] = `${indent}EXPECT_EQ(result, ${valueEntry.value});`;
-                        lines.splice(i + 1, 1); // Remove the FAIL() line
+                        if (trimmedValue === 'overflow') {
+                            lines[i] = `${indent}// Expected: Overflow behavior`;
+                            lines[i + 1] = `${indent}SUCCEED() << "Overflow case - result: " << result;`;
+                        } else if (trimmedValue === 'undefined' || trimmedValue === 'ub') {
+                            lines[i] = `${indent}// Expected: Undefined behavior`;
+                            lines[i + 1] = `${indent}SUCCEED() << "Undefined behavior case - result: " << result;`;
+                        } else if (trimmedValue === 'skip' || trimmedValue === '') {
+                            continue;
+                        } else {
+                            lines[i] = `${indent}EXPECT_EQ(result, ${valueEntry.value});`;
+                            lines.splice(i + 1, 1);
+                        }
                     }
                 }
             }
+
+            await fs.promises.writeFile(testFilePath, lines.join('\n'), 'utf8');
+        } catch (error) {
+            vscode.window.showErrorMessage(`Failed to save expected values: ${error}`);
+            throw error;
+        }
+    }
+
+    /**
+    * Save custom tests to test file (NEW FUNCTIONALITY)
+    */
+    private static async saveCustomTests(
+        testFilePath: string,
+        functionName: string,
+        paramNames: string[],
+        customTests: Array<{name: string; params: {[key: string]: string}; expected: string}>
+    ): Promise<void> {
+        if (!customTests || customTests.length === 0) {
+            console.log('No custom tests to save');
+            return;
         }
 
-        await fs.promises.writeFile(testFilePath, lines.join('\n'), 'utf8');
-    } catch (error) {
-        vscode.window.showErrorMessage(`Failed to save expected values: ${error}`);
-        throw error;
+        try {
+            console.log('Saving custom tests:', JSON.stringify(customTests, null, 2));
+            
+            let content = await fs.promises.readFile(testFilePath, 'utf8');
+
+            // Read existing test names to avoid duplicates
+            const existingTestNames = new Set<string>();
+            const testNameRegex = /TEST\(\w+Test,\s*(\w+)\)/g;
+            let match;
+            while ((match = testNameRegex.exec(content)) !== null) {
+                existingTestNames.add(match[1]);
+            }
+
+            // Generate custom test code
+            let customTestsCode = '\n// ============================================================================\n';
+            customTestsCode += '// Custom Tests (User-Defined)\n';
+            customTestsCode += '// ============================================================================\n\n';
+
+            for (let i = 0; i < customTests.length; i++) {
+                const test = customTests[i];
+                
+                if (!test.name || !test.params) {
+                    console.warn('Skipping invalid test:', test);
+                    continue;
+                }
+
+                // Sanitize and ensure unique name
+                let testName = this.sanitizeTestName(test.name);
+                let uniqueName = testName;
+                let counter = 1;
+                
+                // If name already exists, append number
+                while (existingTestNames.has(uniqueName)) {
+                    uniqueName = `${testName}_${counter}`;
+                    counter++;
+                }
+                
+                existingTestNames.add(uniqueName);
+
+                customTestsCode += `TEST(${functionName}Test, ${uniqueName}) {\n`;
+                customTestsCode += '    // Arrange (Custom)\n';
+
+                // Iterate through parameter names and get values from params object
+                for (const paramName of paramNames) {
+                    const value = test.params[paramName] || '0';
+                    customTestsCode += `    int ${paramName} = ${value};\n`;
+                }
+
+                customTestsCode += '\n    // Act\n';
+                customTestsCode += `    int result = ${functionName}(${paramNames.join(', ')});\n`;
+                customTestsCode += '\n    // Assert\n';
+                
+                const expectedValue = test.expected || '0';
+                customTestsCode += `    EXPECT_EQ(result, ${expectedValue});\n`;
+                customTestsCode += '}\n\n';
+            }
+
+            // Append to end of file
+            content = content.trimEnd() + '\n' + customTestsCode;
+
+            await fs.promises.writeFile(testFilePath, content, 'utf8');
+            console.log(`Successfully saved ${customTests.length} custom test(s)`);
+        } catch (error) {
+            console.error('Failed to save custom tests:', error);
+            vscode.window.showErrorMessage(`Failed to save custom tests: ${error}`);
+            throw error;
+        }
     }
-}
+
+    /**
+     * Sanitize test name for C++
+     */
+    private static sanitizeTestName(name: string): string {
+        // Remove/replace invalid characters
+        let sanitized = name.replace(/[^a-zA-Z0-9_]/g, '_');
+        
+        // Ensure it doesn't start with a number
+        if (/^\d/.test(sanitized)) {
+            sanitized = 'Custom_' + sanitized;
+        }
+        
+        // Ensure it's not empty
+        if (sanitized.length === 0) {
+            sanitized = 'CustomTest';
+        }
+        
+        return sanitized;
+    }
 
     /**
      * Escape HTML special characters

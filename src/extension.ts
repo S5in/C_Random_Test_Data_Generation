@@ -79,7 +79,15 @@ export async function activate(context: vscode.ExtensionContext) {
                         );
 
                         if (choice === 'Fill Expected Values') {
-                            const shouldBuildAndRun = await ExpectedValuesWebview.show(result.testFilePath, result.testCases);
+                            // Extract parameter names for custom tests
+                            const paramNames = result.testCases[0]?.paramValues?.map(p => p.name) || [];
+
+                            const shouldBuildAndRun = await ExpectedValuesWebview.show(
+                                result.testFilePath, 
+                                result.testCases,
+                                result.functionName,
+                                paramNames
+                            );
                             
                             console.log('Webview closed. shouldBuildAndRun:', shouldBuildAndRun);
                             
