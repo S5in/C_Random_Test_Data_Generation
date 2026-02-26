@@ -40,7 +40,7 @@ export class FunctionExtractor {
     }
 
     /**
-     * ✨ NEW: Find function at a specific line number
+     * Find function at a specific line number
      */
     static findFunctionAtLine(tree: Tree, lineNumber: number): FunctionInfo | null {
         const allFunctions = this.extractFunctions(tree);

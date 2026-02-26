@@ -252,6 +252,41 @@ async function generateTestForCurrentFunction(parser: any): Promise<{
 
     console.log(`Found function: ${targetFunction.name}()`);
 
+    // ========================================
+    // STEP 2.5: Warn about high test counts
+    // ========================================
+    const estimatedTests = GlobalUsageAnalyzer.estimateTestCount(
+        targetFunction,
+        [] // Estimate without globals first
+    );
+
+    // Warning for functions with too many parameters
+    if (targetFunction.parameters.length > 7) {
+        const choice = await vscode.window.showWarningMessage(
+            `⚠️ Function has ${targetFunction.parameters.length} parameters!\n\n` +
+            `This will generate approximately ${estimatedTests} tests.\n\n` +
+            `💡 Consider refactoring to use a struct instead.\n\n` +
+            `Example:\n` +
+            `struct Params { int a; int b; int c; };\n` +
+            `int myFunc(struct Params params);`,
+            { modal: true },
+            'Generate Anyway',
+            'Cancel'
+        );
+        
+        if (choice !== 'Generate Anyway') {
+            return null;
+        }
+    }
+
+    // Info message for 5-7 params
+    if (targetFunction.parameters.length >= 5 && targetFunction.parameters.length <= 7) {
+        vscode.window.showInformationMessage(
+            `📊 Generating ${estimatedTests} boundary tests (includes overflow detection).`,
+            { modal: false }
+        );
+    }
+
     vscode.window.showInformationMessage(
         `🎯 Generating tests for: ${targetFunction.name}()`
     );

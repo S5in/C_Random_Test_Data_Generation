@@ -5,12 +5,17 @@
  */
 
 import { FunctionInfo, GlobalVariable } from '../types';
-import { generateBoundarySets, getBoundariesForType } from '../generator/boundaryValues';
+import { generateBoundarySets, getBoundariesForType, isSupportedType} from '../generator/boundaryValues';
+
+/**
+ * Helper: Check if type is pointer or array
+ */
+function isPointerOrArray(type: string): boolean {
+    return type.includes('*') || type.includes('[');
+}
 
 export class GlobalUsageAnalyzer {
-    /**
-     * ✨ SIMPLIFIED: Analyze which globals a SINGLE function uses
-     */
+
     static analyzeFunction(
         func: FunctionInfo,
         globals: GlobalVariable[],
@@ -80,18 +85,33 @@ export class GlobalUsageAnalyzer {
      * Uses actual boundary set generation to count accurately.
      */
     static estimateTestCount(
-        func: FunctionInfo,
-        usedGlobals: GlobalVariable[]
+    func: FunctionInfo,
+    usedGlobals: GlobalVariable[]
     ): number {
         
         if (usedGlobals.length === 0) {
-            // No globals: one test per boundary class (not per parameter)
-            return generateBoundarySets(func.parameters).length;
+            // No globals: STANDARD mode
+            const supportedParams = func.parameters.filter(p => 
+                isSupportedType(p.type) && !isPointerOrArray(p.type)
+            );
+            
+            if (supportedParams.length === 0) {
+                return 1; // Just basic test
+            }
+            
+            // 1 baseline + (n × 4 boundaries) + 2 combinations
+            return 1 + (supportedParams.length * 4) + 2;
         }
 
-        // With globals:
-        // Parameter boundary tests: one per boundary class
-        const paramTests = generateBoundarySets(func.parameters).length;
+        // With globals: more complex calculation
+        const supportedParams = func.parameters.filter(p => 
+            isSupportedType(p.type) && !isPointerOrArray(p.type)
+        );
+        
+        // Parameter tests: 1 baseline + (n × 4) + 2 combinations
+        const paramTests = supportedParams.length === 0 
+            ? 1 
+            : (1 + supportedParams.length * 4 + 2);
         
         // Global boundary tests: one per boundary value per global
         let globalTests = 0;

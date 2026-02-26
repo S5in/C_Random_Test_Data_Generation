@@ -490,7 +490,6 @@ extern "C" {
         return code;
     }
 
-    // ONLY UTILITY METHODS - NO GUESSING
     private static getSafeValue(type: string): string {
         const cleanType = type.trim().replace(/\s+/g, ' ');
         if (cleanType.includes('unsigned')) return '10';

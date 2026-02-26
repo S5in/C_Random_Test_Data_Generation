@@ -1,248 +1,147 @@
 /**
- * Boundary Value Provider
+ * Boundary Value Analysis
  * 
- * Provides boundary test values for C primitive types based on
- * Boundary Value Analysis (BVA) testing principles.
+ * Provides boundary values for primitive C types.
+ * Supports proper BVA with min, min+1, max-1, max boundaries.
  */
 
 import { FunctionParameter } from '../types';
 
 /**
- * Represents a single boundary value for a C type.
+ * Represents a single boundary value for testing
  */
 export interface BoundaryValue {
-    /** The C literal value (e.g., "0", "INT_MAX", "3.14f") */
-    literal: string;
-    
-    /** Human-readable description (e.g., "zero", "maximum", "minimum") */
+    /** Human-readable label (e.g., "minimum", "maximum") */
     label: string;
     
-    /** Optional: whether this value requires #include <limits.h> or <float.h> */
-    requiresHeader?: 'limits.h' | 'float.h';
+    /** C literal value (e.g., "INT_MIN", "0", "1.0f") */
+    literal: string;
+    
+    /** Header file required (e.g., "climits") */
+    requiresHeader?: string;
 }
 
 /**
- * Maps C types to their boundary values.
- * 
- * Each type has:
- * - min: Minimum representable value
- * - max: Maximum representable value  
- * - zero: Zero/identity value
- * - nearZero: Values close to zero (for testing sign changes)
- * - random: A typical in-range value
+ * Catalog of boundary values for each C type.
+ * Includes proper BVA boundaries: min, min+1, max-1, max
  */
-const BOUNDARY_CATALOG: Record<string, {
-    min?: BoundaryValue;
-    max?: BoundaryValue;
-    zero: BoundaryValue;
-    nearZero?: BoundaryValue[];
-    random: BoundaryValue;
-}> = {
-    // Signed integers
-    'int': {
-        min: { literal: 'INT_MIN', label: 'minimum', requiresHeader: 'limits.h' },
-        max: { literal: 'INT_MAX', label: 'maximum', requiresHeader: 'limits.h' },
-        zero: { literal: '0', label: 'zero' },
-        nearZero: [
-            { literal: '1', label: 'near-zero positive' },
-            { literal: '-1', label: 'near-zero negative' }
-        ],
-        random: { literal: '42', label: 'random' }
-    },
+const BOUNDARY_CATALOG: Record<string, BoundaryValue[]> = {
+    'int': [
+        { label: 'minimum', literal: 'INT_MIN', requiresHeader: 'climits' },
+        { label: 'minimum-plus-one', literal: '(INT_MIN + 1)', requiresHeader: 'climits' },
+        { label: 'maximum-minus-one', literal: '(INT_MAX - 1)', requiresHeader: 'climits' },
+        { label: 'maximum', literal: 'INT_MAX', requiresHeader: 'climits' },
+        { label: 'zero', literal: '0' }
+    ],
     
-    'long': {
-        min: { literal: 'LONG_MIN', label: 'minimum', requiresHeader: 'limits.h' },
-        max: { literal: 'LONG_MAX', label: 'maximum', requiresHeader: 'limits.h' },
-        zero: { literal: '0L', label: 'zero' },
-        nearZero: [
-            { literal: '1L', label: 'near-zero positive' },
-            { literal: '-1L', label: 'near-zero negative' }
-        ],
-        random: { literal: '123456L', label: 'random' }
-    },
+    'unsigned int': [
+        { label: 'minimum', literal: '0' },
+        { label: 'minimum-plus-one', literal: '1' },
+        { label: 'maximum-minus-one', literal: '(UINT_MAX - 1)', requiresHeader: 'climits' },
+        { label: 'maximum', literal: 'UINT_MAX', requiresHeader: 'climits' },
+        { label: 'zero', literal: '0' }
+    ],
     
-    'short': {
-        min: { literal: 'SHRT_MIN', label: 'minimum', requiresHeader: 'limits.h' },
-        max: { literal: 'SHRT_MAX', label: 'maximum', requiresHeader: 'limits.h' },
-        zero: { literal: '0', label: 'zero' },
-        nearZero: [
-            { literal: '1', label: 'near-zero positive' },
-            { literal: '-1', label: 'near-zero negative' }
-        ],
-        random: { literal: '100', label: 'random' }
-    },
+    'long': [
+        { label: 'minimum', literal: 'LONG_MIN', requiresHeader: 'climits' },
+        { label: 'minimum-plus-one', literal: '(LONG_MIN + 1)', requiresHeader: 'climits' },
+        { label: 'maximum-minus-one', literal: '(LONG_MAX - 1)', requiresHeader: 'climits' },
+        { label: 'maximum', literal: 'LONG_MAX', requiresHeader: 'climits' },
+        { label: 'zero', literal: '0L' }
+    ],
     
-    'char': {
-        min: { literal: 'CHAR_MIN', label: 'minimum', requiresHeader: 'limits.h' },
-        max: { literal: 'CHAR_MAX', label: 'maximum', requiresHeader: 'limits.h' },
-        zero: { literal: '0', label: 'zero' },
-        nearZero: [
-            { literal: '\'A\'', label: 'printable ASCII' },
-            { literal: '\'\\n\'', label: 'newline' }
-        ],
-        random: { literal: '\'x\'', label: 'random' }
-    },
+    'unsigned long': [
+        { label: 'minimum', literal: '0UL' },
+        { label: 'minimum-plus-one', literal: '1UL' },
+        { label: 'maximum-minus-one', literal: '(ULONG_MAX - 1)', requiresHeader: 'climits' },
+        { label: 'maximum', literal: 'ULONG_MAX', requiresHeader: 'climits' },
+        { label: 'zero', literal: '0UL' }
+    ],
     
-    // Unsigned integers
-    'unsigned int': {
-        max: { literal: 'UINT_MAX', label: 'maximum', requiresHeader: 'limits.h' },
-        zero: { literal: '0U', label: 'zero' },
-        nearZero: [
-            { literal: '1U', label: 'near-zero' }
-        ],
-        random: { literal: '42U', label: 'random' }
-    },
+    'short': [
+        { label: 'minimum', literal: 'SHRT_MIN', requiresHeader: 'climits' },
+        { label: 'minimum-plus-one', literal: '(SHRT_MIN + 1)', requiresHeader: 'climits' },
+        { label: 'maximum-minus-one', literal: '(SHRT_MAX - 1)', requiresHeader: 'climits' },
+        { label: 'maximum', literal: 'SHRT_MAX', requiresHeader: 'climits' },
+        { label: 'zero', literal: '0' }
+    ],
     
-    'unsigned long': {
-        max: { literal: 'ULONG_MAX', label: 'maximum', requiresHeader: 'limits.h' },
-        zero: { literal: '0UL', label: 'zero' },
-        nearZero: [
-            { literal: '1UL', label: 'near-zero' }
-        ],
-        random: { literal: '123456UL', label: 'random' }
-    },
+    'unsigned short': [
+        { label: 'minimum', literal: '0' },
+        { label: 'minimum-plus-one', literal: '1' },
+        { label: 'maximum-minus-one', literal: '(USHRT_MAX - 1)', requiresHeader: 'climits' },
+        { label: 'maximum', literal: 'USHRT_MAX', requiresHeader: 'climits' },
+        { label: 'zero', literal: '0' }
+    ],
     
-    'unsigned short': {
-        max: { literal: 'USHRT_MAX', label: 'maximum', requiresHeader: 'limits.h' },
-        zero: { literal: '0', label: 'zero' },
-        nearZero: [
-            { literal: '1', label: 'near-zero' }
-        ],
-        random: { literal: '100', label: 'random' }
-    },
+    'char': [
+        { label: 'minimum', literal: 'CHAR_MIN', requiresHeader: 'climits' },
+        { label: 'minimum-plus-one', literal: '(CHAR_MIN + 1)', requiresHeader: 'climits' },
+        { label: 'maximum-minus-one', literal: '(CHAR_MAX - 1)', requiresHeader: 'climits' },
+        { label: 'maximum', literal: 'CHAR_MAX', requiresHeader: 'climits' },
+        { label: 'zero', literal: "'\\0'" }
+    ],
     
-    'unsigned char': {
-        max: { literal: 'UCHAR_MAX', label: 'maximum', requiresHeader: 'limits.h' },
-        zero: { literal: '0', label: 'zero' },
-        nearZero: [
-            { literal: '1', label: 'near-zero' }
-        ],
-        random: { literal: '128', label: 'random' }
-    },
+    'unsigned char': [
+        { label: 'minimum', literal: '0' },
+        { label: 'minimum-plus-one', literal: '1' },
+        { label: 'maximum-minus-one', literal: '(UCHAR_MAX - 1)', requiresHeader: 'climits' },
+        { label: 'maximum', literal: 'UCHAR_MAX', requiresHeader: 'climits' },
+        { label: 'zero', literal: '0' }
+    ],
     
-    // Floating point
-    'float': {
-        min: { literal: '-FLT_MAX', label: 'minimum', requiresHeader: 'float.h' },
-        max: { literal: 'FLT_MAX', label: 'maximum', requiresHeader: 'float.h' },
-        zero: { literal: '0.0f', label: 'zero' },
-        nearZero: [
-            { literal: '1.0f', label: 'near-zero positive' },
-            { literal: '-1.0f', label: 'near-zero negative' },
-            { literal: 'FLT_MIN', label: 'smallest positive', requiresHeader: 'float.h' }
-        ],
-        random: { literal: '3.14159f', label: 'random' }
-    },
+    'float': [
+        { label: 'minimum', literal: '-FLT_MAX', requiresHeader: 'cfloat' },
+        { label: 'minimum-plus-epsilon', literal: '(-FLT_MAX + FLT_EPSILON)', requiresHeader: 'cfloat' },
+        { label: 'maximum-minus-epsilon', literal: '(FLT_MAX - FLT_EPSILON)', requiresHeader: 'cfloat' },
+        { label: 'maximum', literal: 'FLT_MAX', requiresHeader: 'cfloat' },
+        { label: 'zero', literal: '0.0f' },
+        { label: 'near-zero-positive', literal: 'FLT_EPSILON', requiresHeader: 'cfloat' },
+        { label: 'near-zero-negative', literal: '-FLT_EPSILON', requiresHeader: 'cfloat' }
+    ],
     
-    'double': {
-        min: { literal: '-DBL_MAX', label: 'minimum', requiresHeader: 'float.h' },
-        max: { literal: 'DBL_MAX', label: 'maximum', requiresHeader: 'float.h' },
-        zero: { literal: '0.0', label: 'zero' },
-        nearZero: [
-            { literal: '1.0', label: 'near-zero positive' },
-            { literal: '-1.0', label: 'near-zero negative' },
-            { literal: 'DBL_MIN', label: 'smallest positive', requiresHeader: 'float.h' }
-        ],
-        random: { literal: '2.718281828', label: 'random' }
-    },
-    
-    // Boolean (C99 _Bool / stdbool.h bool)
-    'bool': {
-        zero: { literal: 'false', label: 'false' },
-        random: { literal: 'true', label: 'true' }
-    },
-    '_Bool': {
-        zero: { literal: '0', label: 'false' },
-        random: { literal: '1', label: 'true' }
-    }
+    'double': [
+        { label: 'minimum', literal: '-DBL_MAX', requiresHeader: 'cfloat' },
+        { label: 'minimum-plus-epsilon', literal: '(-DBL_MAX + DBL_EPSILON)', requiresHeader: 'cfloat' },
+        { label: 'maximum-minus-epsilon', literal: '(DBL_MAX - DBL_EPSILON)', requiresHeader: 'cfloat' },
+        { label: 'maximum', literal: 'DBL_MAX', requiresHeader: 'cfloat' },
+        { label: 'zero', literal: '0.0' },
+        { label: 'near-zero-positive', literal: 'DBL_EPSILON', requiresHeader: 'cfloat' },
+        { label: 'near-zero-negative', literal: '-DBL_EPSILON', requiresHeader: 'cfloat' }
+    ]
 };
 
 /**
- * Normalizes a C type string by removing qualifiers and extra whitespace.
- * 
- * Examples:
- *   "const int" → "int"
- *   "unsigned  int" → "unsigned int"
- *   "float  *" → "float"
- * 
- * @param type - Raw C type string
- * @returns Normalized type string
+ * Normalize type string (remove extra whitespace, standardize format)
  */
 function normalizeType(type: string): string {
-    return type
-        .replace(/\bconst\b/g, '')      // Remove const
-        .replace(/\bvolatile\b/g, '')   // Remove volatile
-        .replace(/\bstatic\b/g, '')     // Remove static
-        .replace(/\brestrict\b/g, '')   // Remove restrict
-        .replace(/\*/g, '')             // Remove pointers (we'll handle those separately)
-        .replace(/\[.*?\]/g, '')        // Remove array brackets
-        .trim()
-        .replace(/\s+/g, ' ');          // Normalize whitespace
+    return type.trim().replace(/\s+/g, ' ').toLowerCase();
 }
 
 /**
- * Checks if a C type is a pointer or array.
- * 
- * @param type - Raw C type string
- * @returns true if type contains * or []
+ * Check if type is a pointer or array
  */
 function isPointerOrArray(type: string): boolean {
     return type.includes('*') || type.includes('[');
 }
 
 /**
- * Gets all boundary values for a given C type.
- * 
- * @param type - C type string (e.g., "int", "const float", "unsigned long")
- * @returns Array of boundary values, or empty array if type not supported
+ * Get boundary values for a given C type
  */
 export function getBoundaryValues(type: string): BoundaryValue[] {
     const normalized = normalizeType(type);
-    const catalog = BOUNDARY_CATALOG[normalized];
-    
-    if (!catalog) {
-        return [];
-    }
-    
-    const values: BoundaryValue[] = [];
-    
-    if (catalog.min) values.push(catalog.min);
-    if (catalog.max) values.push(catalog.max);
-    values.push(catalog.zero);
-    if (catalog.nearZero) values.push(...catalog.nearZero);
-    values.push(catalog.random);
-    
-    return values;
+    return BOUNDARY_CATALOG[normalized] || [];
 }
 
 /**
- * Alias for getBoundaryValues (for backwards compatibility)
+ * Alias for getBoundaryValues (for compatibility)
  */
-export const getBoundariesForType = getBoundaryValues;
-
-/**
- * Gets required C headers for a type's boundary values.
- * 
- * @param type - C type string
- * @returns Array of header names (e.g., ["limits.h", "float.h"])
- */
-export function getRequiredHeaders(type: string): string[] {
-    const boundaries = getBoundaryValues(type);
-    const headers = new Set<string>();
-    
-    for (const boundary of boundaries) {
-        if (boundary.requiresHeader) {
-            headers.add(boundary.requiresHeader);
-        }
-    }
-    
-    return Array.from(headers);
+export function getBoundariesForType(type: string): BoundaryValue[] {
+    return getBoundaryValues(type);
 }
 
 /**
- * Checks if a type is supported for boundary value generation.
- * 
- * @param type - C type string
- * @returns true if we have boundary values for this type
+ * Check if a type is supported for boundary testing
  */
 export function isSupportedType(type: string): boolean {
     const normalized = normalizeType(type);
@@ -253,7 +152,7 @@ export function isSupportedType(type: string): boolean {
  * Represents a complete test case with values for all parameters.
  */
 export interface BoundarySet {
-    /** Human-readable label for test name (e.g., "MinValues", "MaxValues") */
+    /** Human-readable label for test name (e.g., "Param_a_Min") */
     label: string;
     
     /** Human-readable description */
@@ -267,24 +166,30 @@ export interface BoundarySet {
 }
 
 /**
- * Generates boundary test sets for a function's parameters.
+ * Generates proper boundary value analysis tests.
  * 
- * Strategy:
- * - One test per boundary class (min, max, zero, near-zero, random)
- * - All params in a test use the same boundary class
- * - Skips unsupported types (pointers, structs, etc.)
+ * Strategy (Hybrid Approach):
+ * 1. One baseline test (all nominal/zero)
+ * 2. One-at-a-time boundary tests (vary each param individually)
+ *    - Skip "zero" boundary (already covered by baseline)
+ *    - Use TRUE boundaries: min, min+1, max-1, max
+ * 3. Critical combination tests (all-min, all-max for overflow detection)
+ * 
+ * For 3 params:
+ * - 1 baseline
+ * - 3 params × 4 boundaries (min, min+1, max-1, max) = 12 tests
+ * - 2 combination tests (all-min, all-max)
+ * = 15 unique tests (NO DUPLICATES)
  * 
  * @param params - Function parameters
  * @returns Array of boundary test sets
  */
 export function generateBoundarySets(params: FunctionParameter[]): BoundarySet[] {
-    // Filter to only supported primitive types
     const supportedParams = params.filter(p => 
         isSupportedType(p.type) && !isPointerOrArray(p.type)
     );
     
     if (supportedParams.length === 0) {
-        // No supported params → generate one basic test with TODOs
         return [{
             label: 'BasicTest',
             description: 'Basic test case (manual initialization required)',
@@ -295,87 +200,168 @@ export function generateBoundarySets(params: FunctionParameter[]): BoundarySet[]
     
     const sets: BoundarySet[] = [];
     
-    // Helper to create a boundary set for a given boundary class
-    const createSet = (
-        label: string,
-        description: string,
-        selector: (boundaries: BoundaryValue[]) => BoundaryValue | undefined
-    ) => {
-        const values: string[] = [];
-        const headers = new Set<string>();
-        
-        for (const param of params) {
-            if (isPointerOrArray(param.type)) {
-                values.push('/* TODO: initialize pointer/array */');
-                continue;
-            }
-            
-            const boundaries = getBoundaryValues(param.type);
-            if (boundaries.length === 0) {
-                values.push('/* TODO: initialize */');
-                continue;
-            }
-            
-            const boundary = selector(boundaries);
-            if (boundary) {
-                values.push(boundary.literal);
-                if (boundary.requiresHeader) {
-                    headers.add(boundary.requiresHeader);
-                }
-            } else {
-                // Fallback to zero if selector didn't find a match
-                const zero = boundaries.find(b => b.label === 'zero');
-                values.push(zero?.literal || '0');
-            }
-        }
-        
-        sets.push({
-            label,
-            description,
-            values,
-            requiredHeaders: Array.from(headers)
-        });
+    // TRUE boundary classes for proper BVA (skip zero - covered by baseline)
+    const boundaryClasses = [
+        'minimum',
+        'minimum-plus-one',
+        'maximum-minus-one',
+        'maximum'
+    ];
+    
+    // Helper: Get nominal (zero) value
+    const getNominalValue = (type: string): string => {
+        const boundaries = getBoundaryValues(type);
+        const zero = boundaries.find(b => b.label === 'zero');
+        return zero?.literal || '0';
     };
     
-    // Generate boundary sets
-    createSet(
-        'MinValues',
-        'Test with minimum boundary values',
-        boundaries => boundaries.find(b => b.label === 'minimum')
-    );
+    // ========================================
+    // 1. BASELINE TEST (all nominal/zero)
+    // ========================================
+    const baselineValues: string[] = [];
+    for (const param of params) {
+        if (isPointerOrArray(param.type)) {
+            baselineValues.push('/* TODO: initialize pointer/array */');
+        } else {
+            baselineValues.push(getNominalValue(param.type));
+        }
+    }
     
-    createSet(
-        'MaxValues',
-        'Test with maximum boundary values',
-        boundaries => boundaries.find(b => b.label === 'maximum')
-    );
+    sets.push({
+        label: 'Baseline_AllZero',
+        description: 'Baseline test with all parameters at zero',
+        values: baselineValues,
+        requiredHeaders: []
+    });
     
-    createSet(
-        'ZeroValues',
-        'Test with zero values',
-        boundaries => boundaries.find(b => b.label === 'zero')
-    );
+    // ========================================
+    // 2. ONE-AT-A-TIME BOUNDARY TESTS
+    //    (Skip zero - already covered by baseline)
+    // ========================================
+    for (let paramIndex = 0; paramIndex < params.length; paramIndex++) {
+        const param = params[paramIndex];
+        
+        if (isPointerOrArray(param.type)) continue;
+        
+        const boundaries = getBoundaryValues(param.type);
+        if (boundaries.length === 0) continue;
+        
+        for (const boundaryClass of boundaryClasses) {
+            const boundary = boundaries.find(b => b.label === boundaryClass);
+            if (!boundary) continue;
+            
+            const values: string[] = [];
+            const headers = new Set<string>();
+            
+            for (let i = 0; i < params.length; i++) {
+                if (i === paramIndex) {
+                    // THIS parameter gets boundary value
+                    values.push(boundary.literal);
+                    if (boundary.requiresHeader) {
+                        headers.add(boundary.requiresHeader);
+                    }
+                } else {
+                    // OTHER parameters stay at zero
+                    if (isPointerOrArray(params[i].type)) {
+                        values.push('/* TODO: initialize pointer/array */');
+                    } else {
+                        values.push(getNominalValue(params[i].type));
+                    }
+                }
+            }
+            
+            sets.push({
+                label: `Param_${param.name}_${sanitizeBoundaryLabel(boundaryClass)}`,
+                description: `Vary ${param.name} to ${boundaryClass}, others at zero`,
+                values,
+                requiredHeaders: Array.from(headers)
+            });
+        }
+    }
     
-    createSet(
-        'NearZeroValues',
-        'Test with near-zero values',
-        boundaries => boundaries.find(b => b.label.includes('near-zero'))
-    );
+    // ========================================
+    // 3. COMBINATION TESTS (Critical for overflow detection)
+    // ========================================
     
-    createSet(
-        'RandomValues',
-        'Test with random values',
-        boundaries => boundaries.find(b => b.label === 'random')
-    );
+    // Test: All parameters at MINIMUM
+    const allMinValues: string[] = [];
+    const allMinHeaders = new Set<string>();
+    for (const param of params) {
+        if (isPointerOrArray(param.type)) {
+            allMinValues.push('/* TODO: initialize pointer/array */');
+        } else {
+            const boundaries = getBoundaryValues(param.type);
+            const minBoundary = boundaries.find(b => b.label === 'minimum');
+            if (minBoundary) {
+                allMinValues.push(minBoundary.literal);
+                if (minBoundary.requiresHeader) {
+                    allMinHeaders.add(minBoundary.requiresHeader);
+                }
+            } else {
+                allMinValues.push(getNominalValue(param.type));
+            }
+        }
+    }
+    
+    sets.push({
+        label: 'Combination_AllMin',
+        description: 'All parameters at minimum (underflow test)',
+        values: allMinValues,
+        requiredHeaders: Array.from(allMinHeaders)
+    });
+    
+    // Test: All parameters at MAXIMUM
+    const allMaxValues: string[] = [];
+    const allMaxHeaders = new Set<string>();
+    for (const param of params) {
+        if (isPointerOrArray(param.type)) {
+            allMaxValues.push('/* TODO: initialize pointer/array */');
+        } else {
+            const boundaries = getBoundaryValues(param.type);
+            const maxBoundary = boundaries.find(b => b.label === 'maximum');
+            if (maxBoundary) {
+                allMaxValues.push(maxBoundary.literal);
+                if (maxBoundary.requiresHeader) {
+                    allMaxHeaders.add(maxBoundary.requiresHeader);
+                }
+            } else {
+                allMaxValues.push(getNominalValue(param.type));
+            }
+        }
+    }
+    
+    sets.push({
+        label: 'Combination_AllMax',
+        description: 'All parameters at maximum (overflow test)',
+        values: allMaxValues,
+        requiredHeaders: Array.from(allMaxHeaders)
+    });
     
     return sets;
+}
+
+/**
+ * Helper: Sanitize boundary class labels for test names
+ */
+function sanitizeBoundaryLabel(label: string): string {
+    return label
+        .replace(/minimum-plus-one/g, 'MinPlusOne')
+        .replace(/maximum-minus-one/g, 'MaxMinusOne')
+        .replace(/minimum-plus-epsilon/g, 'MinPlusEpsilon')
+        .replace(/maximum-minus-epsilon/g, 'MaxMinusEpsilon')
+        .replace(/minimum/g, 'Min')
+        .replace(/maximum/g, 'Max')
+        .replace(/zero/g, 'Zero')
+        .replace(/near-zero-positive/g, 'NearZeroPos')
+        .replace(/near-zero-negative/g, 'NearZeroNeg')
+        .replace(/-/g, '_');
 }
 
 /**
  * Gets a human-readable summary of boundary coverage for a function.
  * 
  * @param params - Function parameters
- * @returns Summary string (e.g., "5 test cases for 2 parameters (int, float)")
+ * @returns Summary string (e.g., "15 test cases for 3 parameters (int, int, int)")
  */
 export function getBoundarySummary(params: FunctionParameter[]): string {
     const sets = generateBoundarySets(params);
