@@ -222,7 +222,7 @@ your_project/
 
 ## 📦 Release Notes
 
-### 0.1.0 — Iteration 1
+### 1.0.0 — Iteration 1
 
 - Initial release
 - Boundary value analysis for all C primitive types
