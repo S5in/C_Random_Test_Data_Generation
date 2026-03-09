@@ -1,8 +1,10 @@
 /**
  * C Test Generator Extension
- * 
- * Generates Google Test test cases for C functions with boundary value analysis
- * Focus: Single function at a time - real developer workflow
+ *
+ * Generates Google Test test cases for C functions with boundary value analysis.
+ * Focus: Single function at a time - real developer workflow.
+ *
+ * v2.0.0: struct/array/pointer support, smarter BVA, preview UI, diagnostics.
  */
 
 import * as vscode from 'vscode';
@@ -15,6 +17,7 @@ import { TestGenerator, TestCaseInfo } from './generator/testGenerator';
 import { CMakeGenerator } from './generator/cmakeGenerator';
 import { BuildRunner } from './build/buildRunner';
 import { ExpectedValuesWebview } from './ui/expectedValuesWebview';
+import { TestDensity } from './generator/boundaryValues';
 
 let buildRunner: BuildRunner;
 
@@ -30,10 +33,8 @@ function escapeRegex(str: string): string {
  */
 export async function activate(context: vscode.ExtensionContext) {
     try {
-        console.log('C Test Generator: Activating extension...');
-
-        // Initialize build runner
         buildRunner = new BuildRunner();
+        buildRunner.log('C Test Generator: Activating extension...');
 
         // Initialize Tree-sitter parser for C
         const ParserModule = require('web-tree-sitter');
@@ -58,7 +59,7 @@ export async function activate(context: vscode.ExtensionContext) {
         const CLang = await ParserModule.Language.load(wasmBuffer);
         parser.setLanguage(CLang);
 
-        console.log('C Test Generator: Parser initialized successfully');
+        buildRunner.log('C Test Generator: Parser initialized successfully');
 
         // ========================================
         // Command 1: Generate Tests for Current Function
@@ -86,14 +87,14 @@ export async function activate(context: vscode.ExtensionContext) {
                                 result.testFilePath, 
                                 result.testCases,
                                 result.functionName,
-                                paramNames
+                                paramNames,
+                                result.testCode
                             );
                             
-                            console.log('Webview closed. shouldBuildAndRun:', shouldBuildAndRun);
+                            buildRunner.log(`Webview closed. shouldBuildAndRun: ${shouldBuildAndRun}`);
                             
-                            // If user chose "Save & Build & Run", run the tests
                             if (shouldBuildAndRun) {
-                                console.log('Starting build and run...');
+                                buildRunner.log('Starting build and run...');
                                 await buildRunner.buildAndRun(result.projectDir, result.executableName);
                             }
                         } else if (choice === 'Build & Run') {
@@ -101,7 +102,7 @@ export async function activate(context: vscode.ExtensionContext) {
                         }
                     }
                 } catch (error) {
-                    console.error('Generate test command failed:', error);
+                    buildRunner.log(`Generate test command failed: ${error}`);
                     vscode.window.showErrorMessage(`Failed to generate tests: ${error}`);
                 }
             }
@@ -141,7 +142,7 @@ export async function activate(context: vscode.ExtensionContext) {
                     await buildRunner.buildAndRun(projectDir, executableName);
                     
                 } catch (error) {
-                    console.error('Build and run command failed:', error);
+                    buildRunner.log(`Build and run command failed: ${error}`);
                     vscode.window.showErrorMessage(`Build failed: ${error}`);
                 }
             }
@@ -166,7 +167,7 @@ export async function activate(context: vscode.ExtensionContext) {
                     vscode.window.showInformationMessage('✅ Build directory cleaned');
                     
                 } catch (error) {
-                    console.error('Clean build command failed:', error);
+                    buildRunner.log(`Clean build command failed: ${error}`);
                     vscode.window.showErrorMessage(`Failed to clean build: ${error}`);
                 }
             }
@@ -178,7 +179,7 @@ export async function activate(context: vscode.ExtensionContext) {
         context.subscriptions.push(cleanBuildCommand);
         context.subscriptions.push(buildRunner);
 
-        console.log('C Test Generator: Extension activated successfully');
+        buildRunner.log('C Test Generator: Extension activated successfully');
 
     } catch (error) {
         console.error('Extension activation failed:', error);
@@ -198,6 +199,7 @@ async function generateTestForCurrentFunction(parser: any): Promise<{
     executableName: string;
     testFilePath: string;
     testCases: TestCaseInfo[];
+    testCode: string;
 } | null> {
     
     // ========================================
@@ -238,7 +240,7 @@ async function generateTestForCurrentFunction(parser: any): Promise<{
     const cursorPosition = editor.selection.active;
     const cursorLine = cursorPosition.line;
 
-    console.log(`Searching for function at line ${cursorLine}`);
+    buildRunner.log(`Searching for function at line ${cursorLine}`);
 
     const code = document.getText();
     const tree = parser.parse(code);
@@ -246,19 +248,14 @@ async function generateTestForCurrentFunction(parser: any): Promise<{
     const targetFunction = FunctionExtractor.findFunctionAtLine(tree, cursorLine);
 
     if (!targetFunction) {
-        vscode.window.showWarningMessage(
-            '❌ No function found at cursor position.\n\n' +
-            'Place your cursor inside a function and try again.\n\n' +
-            'Example:\n' +
-            'int add(int x, int y) {\n' +
-            '    return x + y;  ← cursor here\n' +
-            '}',
+        vscode.window.showErrorMessage(
+            '❌ No function found at cursor position.\n\nPlace your cursor inside or on a C function and try again.',
             { modal: false }
         );
         return null;
     }
 
-    console.log(`Found function: ${targetFunction.name}()`);
+    buildRunner.log(`Found function: ${targetFunction.name}()`);
 
     // ========================================
     // STEP 2.5: Warn about high test counts
@@ -304,7 +301,7 @@ async function generateTestForCurrentFunction(parser: any): Promise<{
     // ========================================
     const globals = GlobalExtractor.extractGlobals(tree);
     
-    console.log(`Found ${globals.length} global variable(s)`);
+    buildRunner.log(`Found ${globals.length} global variable(s)`);
 
     const usedGlobals = GlobalUsageAnalyzer.analyzeFunction(
         targetFunction,
@@ -314,7 +311,7 @@ async function generateTestForCurrentFunction(parser: any): Promise<{
 
     if (usedGlobals.length > 0) {
         const summary = GlobalUsageAnalyzer.getFunctionGlobalSummary(targetFunction, usedGlobals);
-        console.log(summary);
+        buildRunner.log(summary);
         
         vscode.window.showInformationMessage(
             `📊 Function uses ${usedGlobals.length} global variable(s): ${usedGlobals.map(g => g.name).join(', ')}`
@@ -326,21 +323,26 @@ async function generateTestForCurrentFunction(parser: any): Promise<{
     // ========================================
     const sourceFileName = path.basename(document.fileName);
     
-    console.log('Generating test code...');
+    // Read test density from configuration
+    const density = vscode.workspace.getConfiguration('cTestGenerator').get<TestDensity>('testDensity', 'standard');
+
+    buildRunner.log(`Generating test code (density: ${density})...`);
     
-    // FIX: Use generateTestsWithCaseInfo to get both code AND case metadata
     const { testCode, testCases } = TestGenerator.generateTestsWithCaseInfo(
         targetFunction,
         sourceFileName,
-        usedGlobals
+        usedGlobals,
+        density
     );
+
+    buildRunner.log(`Generated ${testCases.length} boundary value test case(s)`);
 
     // ========================================
     // Step 5: Generate CMakeLists.txt
     // ========================================
     const testFileName = `${targetFunction.name}_test.cpp`;
     
-    console.log(`Creating test file: ${testFileName}`);
+    buildRunner.log(`Creating test file: ${testFileName}`);
     
     const cmakeContent = CMakeGenerator.generateWithInstructions(
         testFileName,
@@ -356,10 +358,10 @@ async function generateTestForCurrentFunction(parser: any): Promise<{
 
     try {
         await fs.promises.writeFile(testFilePath, testCode, 'utf8');
-        console.log(`Test file written: ${testFilePath}`);
+        buildRunner.log(`Test file written: ${testFilePath}`);
 
         await fs.promises.writeFile(cmakeFilePath, cmakeContent, 'utf8');
-        console.log(`CMakeLists.txt written: ${cmakeFilePath}`);
+        buildRunner.log(`CMakeLists.txt written: ${cmakeFilePath}`);
 
         const testDocument = await vscode.workspace.openTextDocument(testFilePath);
         await vscode.window.showTextDocument(testDocument, {
@@ -374,7 +376,7 @@ async function generateTestForCurrentFunction(parser: any): Promise<{
 
         const executableName = testFileName.replace('_test.cpp', '_tests');
 
-        console.log(`Generation complete: ${totalTests} test(s) created`);
+        buildRunner.log(`Generation complete: ${totalTests} test(s) created`);
 
         return {
             totalTests,
@@ -382,11 +384,12 @@ async function generateTestForCurrentFunction(parser: any): Promise<{
             projectDir,
             executableName,
             testFilePath,
-            testCases
+            testCases,
+            testCode
         };
 
     } catch (error) {
-        console.error('Failed to write files:', error);
+        buildRunner.log(`Failed to write files: ${error}`);
         vscode.window.showErrorMessage(
             `❌ Failed to write test files: ${error}\n\n` +
             `Make sure you have write permissions in: ${projectDir}`
@@ -394,7 +397,6 @@ async function generateTestForCurrentFunction(parser: any): Promise<{
         return null;
     }
 }
-
 /**
  * Interactive expected value filling.
  * Prompts developer for each test case's expected output,
@@ -534,11 +536,9 @@ async function fillExpectedValues(testFilePath: string, testCases: TestCaseInfo[
  * Extension deactivation
  */
 export function deactivate() {
-    console.log('C Test Generator: Deactivating extension...');
+    buildRunner.log('C Test Generator: Deactivating extension...');
     
     if (buildRunner) {
         buildRunner.dispose();
     }
-    
-    console.log('C Test Generator: Extension deactivated');
 }

@@ -2,7 +2,7 @@
   "name": "random-test-data-generation",
   "displayName": "Random Test Data Generation",
   "description": "Automatically generates Google Test test cases for C functions using boundary value analysis. Right-click a function → get tests.",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "publisher": "S5in",
   "repository": {
     "type": "git",
@@ -50,7 +50,18 @@
         "mac": "cmd+shift+t",
         "when": "editorTextFocus && resourceLangId == c"
       }
-    ]
+    ],
+    "configuration": {
+      "title": "C Test Generator",
+      "properties": {
+        "cTestGenerator.testDensity": {
+          "type": "string",
+          "default": "standard",
+          "enum": ["minimal", "standard", "exhaustive"],
+          "description": "Controls how many boundary test cases are generated per function. 'minimal' = min/max/zero only; 'standard' = full BVA (default); 'exhaustive' = all boundary classes including near-zero, infinity, overflow."
+        }
+      }
+    }
   },
   "scripts": {
     "vscode:prepublish": "npm run package",

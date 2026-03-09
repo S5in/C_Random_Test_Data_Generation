@@ -1,8 +1,12 @@
 /**
  * Build System Runner
- * 
- * Handles compilation and execution of generated tests
- * Supports Windows, Linux, and WSL environments
+ *
+ * Handles compilation and execution of generated tests.
+ * Supports Windows, Linux, and WSL environments.
+ *
+ * v2.0.0 additions:
+ *   - Parses g++/cmake stderr to produce VS Code diagnostics
+ *   - Public log() method for extension-wide output channel usage
  */
 
 import * as vscode from 'vscode';
@@ -19,10 +23,12 @@ export interface BuildResult {
 
 export class BuildRunner {
     private outputChannel: vscode.OutputChannel;
+    private diagnosticCollection: vscode.DiagnosticCollection;
     private isWindowsHost: boolean;
 
     constructor() {
         this.outputChannel = vscode.window.createOutputChannel('C Test Generator');
+        this.diagnosticCollection = vscode.languages.createDiagnosticCollection('c-test-generator');
         // Detect if we're running on Windows (not WSL inside)
         this.isWindowsHost = os.platform() === 'win32';
     }
@@ -231,6 +237,7 @@ export class BuildRunner {
                 this.outputChannel.appendLine(buildResult.output);
                 if (buildResult.error) {
                     this.outputChannel.appendLine('\nError:\n' + buildResult.error);
+                    this.parseBuildDiagnostics(buildResult.error, projectDir);
                 }
                 vscode.window.showErrorMessage('Build failed. See output for details.');
                 return;
@@ -485,6 +492,68 @@ export class BuildRunner {
     }
 
     /**
+     * Parse g++/cmake stderr output into VS Code diagnostics and populate
+     * the diagnostic collection so errors appear in the Problems panel.
+     *
+     * Handles the standard GCC error format:
+     *   <file>:<line>:<col>: error: <message>
+     *   <file>:<line>:<col>: warning: <message>
+     *   <file>:<line>:<col>: note: <message>
+     */
+    private parseBuildDiagnostics(stderr: string, projectDir: string): void {
+        this.diagnosticCollection.clear();
+
+        if (!stderr) { return; }
+
+        // Map file path → list of diagnostics
+        const diagnosticsMap = new Map<string, vscode.Diagnostic[]>();
+
+        // GCC error pattern: file:line:col: severity: message
+        const errorPattern = /^([^:]+):(\d+):(\d+):\s+(error|warning|note):\s+(.+)$/gm;
+
+        let match: RegExpExecArray | null;
+        while ((match = errorPattern.exec(stderr)) !== null) {
+            const [, filePart, lineStr, colStr, severity, message] = match;
+            const lineNum = Math.max(0, parseInt(lineStr, 10) - 1);
+            const colNum  = Math.max(0, parseInt(colStr,  10) - 1);
+
+            // Resolve file path relative to project directory
+            const filePath = path.isAbsolute(filePart)
+                ? filePart
+                : path.join(projectDir, filePart);
+
+            const range = new vscode.Range(lineNum, colNum, lineNum, colNum + 1);
+
+            let diagSeverity: vscode.DiagnosticSeverity;
+            if (severity === 'error') {
+                diagSeverity = vscode.DiagnosticSeverity.Error;
+            } else if (severity === 'warning') {
+                diagSeverity = vscode.DiagnosticSeverity.Warning;
+            } else {
+                diagSeverity = vscode.DiagnosticSeverity.Information;
+            }
+
+            const diagnostic = new vscode.Diagnostic(range, message, diagSeverity);
+            diagnostic.source = 'C Test Generator';
+
+            if (!diagnosticsMap.has(filePath)) {
+                diagnosticsMap.set(filePath, []);
+            }
+            diagnosticsMap.get(filePath)!.push(diagnostic);
+        }
+
+        // Publish to VS Code
+        for (const [filePath, diags] of diagnosticsMap) {
+            const uri = vscode.Uri.file(filePath);
+            this.diagnosticCollection.set(uri, diags);
+        }
+
+        if (diagnosticsMap.size > 0) {
+            this.outputChannel.appendLine(`\n⚠️  ${diagnosticsMap.size} file(s) with build errors — check the Problems panel.`);
+        }
+    }
+
+    /**
      * Clean build directory
      */
     async cleanBuild(projectDir: string): Promise<void> {
@@ -515,9 +584,17 @@ export class BuildRunner {
     }
 
     /**
-     * Dispose the output channel
+     * Log a message to the output channel
+     */
+    log(message: string): void {
+        this.outputChannel.appendLine(message);
+    }
+
+    /**
+     * Dispose the output channel and diagnostic collection
      */
     dispose(): void {
+        this.diagnosticCollection.dispose();
         this.outputChannel.dispose();
     }
 }
