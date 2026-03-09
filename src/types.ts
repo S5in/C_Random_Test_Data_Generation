@@ -26,3 +26,11 @@ export interface GlobalVariable {
     isConst: boolean;
     initialValue?: string;
 }
+
+/**
+ * Represents a struct definition extracted from C source
+ */
+export interface StructInfo {
+    name: string;
+    fields: { name: string; type: string; }[];
+}

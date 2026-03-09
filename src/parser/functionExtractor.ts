@@ -131,9 +131,9 @@ export class FunctionExtractor {
 
     private static parseParameter(node: SyntaxNode): FunctionParameter | null {
         const typeNode = node.childForFieldName('type');
-        if (!typeNode) return null;
+        if (!typeNode) { return null; }
 
-        const type = typeNode.text;
+        let type = typeNode.text;
 
         const declaratorNode = node.childForFieldName('declarator');
         
@@ -146,10 +146,27 @@ export class FunctionExtractor {
         if (declaratorNode.type === 'identifier') {
             name = declaratorNode.text;
         } else if (declaratorNode.type === 'pointer_declarator') {
-            const innerDeclarator = declaratorNode.childForFieldName('declarator');
-            if (innerDeclarator?.type === 'identifier') {
-                name = innerDeclarator.text;
+            // e.g. "int *ptr" or "float **pp"
+            // Count pointer depth so we include the right number of * in the type
+            let ptrDepth = 0;
+            let current: SyntaxNode = declaratorNode;
+            while (current && current.type === 'pointer_declarator') {
+                ptrDepth++;
+                current = current.childForFieldName('declarator');
             }
+            // The innermost node should be the identifier
+            if (current && current.type === 'identifier') {
+                name = current.text;
+            }
+            type = type + ' ' + '*'.repeat(ptrDepth);
+        } else if (declaratorNode.type === 'array_declarator') {
+            // e.g. "int arr[]" or "int arr[10]"
+            const nameNode = declaratorNode.childForFieldName('declarator');
+            if (nameNode && nameNode.type === 'identifier') {
+                name = nameNode.text;
+            }
+            const sizeNode = declaratorNode.childForFieldName('size');
+            type = sizeNode ? `${type}[${sizeNode.text}]` : `${type}[]`;
         } else {
             for (let i = 0; i < declaratorNode.childCount; i++) {
                 const child = declaratorNode.child(i);
@@ -160,7 +177,7 @@ export class FunctionExtractor {
             }
         }
 
-        if (!name) return null;
+        if (!name) { return null; }
 
         return { name, type };
     }
