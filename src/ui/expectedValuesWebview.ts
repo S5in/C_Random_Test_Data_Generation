@@ -752,20 +752,19 @@ export class ExpectedValuesWebview {
         let code = this.escapeHtml(rawCode);
         // Step 2: Apply highlighting (all regexes run on already-escaped text,
         //         span tags are inserted as literal HTML)
-        code = code
+        return code
             // Comments  // ...
             .replace(/(\/\/[^\n]*)/g, '<span class="cmt">$1</span>')
             // #include / #define preprocessor
             .replace(/(#\w+)/g, '<span class="inc">$1</span>')
             // C++ keywords and GTest macros
-            .replace(/\b(TEST|TEST_F|EXPECT_EQ|EXPECT_FLOAT_EQ|EXPECT_DOUBLE_EQ|EXPECT_NEAR|EXPECT_TRUE|EXPECT_FALSE|FAIL|SUCCEED|extern|class|protected|void|return|if|else|for|while|do|break|continue|nullptr|NULL|true|false|override)\b/g,
+            .replace(/\b(TEST|TEST_F|EXPECT_EQ|EXPECT_FLOAT_EQ|EXPECT_DOUBLE_EQ|EXPECT_NEAR|EXPECT_TRUE|EXPECT_FALSE|FAIL|SUCCEED|extern|class(?!=)|protected|void|return|if|else|for|while|do|break|continue|nullptr|NULL|true|false|override)\b/g,
                 '<span class="kw">$1</span>')
             // C types
             .replace(/\b(int|float|double|char|long|short|unsigned|signed|struct|size_t|bool)\b/g,
                 '<span class="typ">$1</span>')
             // Numbers (simple)
             .replace(/\b(\d+\.?\d*[fFlLuU]*)\b/g, '<span class="num">$1</span>');
-            return code;
     }
     /**
      * Save expected values to test file.
