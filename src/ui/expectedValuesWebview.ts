@@ -6,9 +6,11 @@
 
 import * as vscode from 'vscode';
 import * as fs from 'fs';
+import * as path from 'path';
 import { TestCaseInfo } from '../generator/testGenerator';
 import { FunctionParameter } from '../types';
 import { isArrayType, isPointerType, isStructType } from '../generator/boundaryValues';
+import { GitRunner } from '../build/gitRunner';
 
 interface CustomTest {
     name: string;
@@ -17,6 +19,15 @@ interface CustomTest {
 }
 
 export class ExpectedValuesWebview {
+    private static gitOutputChannel: vscode.OutputChannel | undefined;
+
+    private static getGitOutputChannel(): vscode.OutputChannel {
+        if (!ExpectedValuesWebview.gitOutputChannel) {
+            ExpectedValuesWebview.gitOutputChannel = vscode.window.createOutputChannel('C Test Generator - Git');
+        }
+        return ExpectedValuesWebview.gitOutputChannel;
+    }
+
     /**
      * Show webview panel for filling expected values
      * @returns Promise that resolves to true if user wants to build & run, false otherwise
@@ -74,6 +85,17 @@ export class ExpectedValuesWebview {
                             panel.dispose();
                             resolve(false);
                             return;
+                        case 'saveAndGit': {
+                            await this.saveExpectedValues(testFilePath, message.values, message.disabledTests || []);
+                            await this.saveCustomTests(testFilePath, functionName, params, returnType, message.customTests || []);
+                            const gitRunner = new GitRunner(ExpectedValuesWebview.getGitOutputChannel());
+                            const cwd = path.dirname(testFilePath);
+                            await gitRunner.addCommitAndPush(cwd, testFilePath, message.commitMessage || 'Update test file');
+                            resolved = true;
+                            panel.dispose();
+                            resolve(false);
+                            return;
+                        }
                     }
                 }
             );
@@ -361,6 +383,14 @@ export class ExpectedValuesWebview {
             border-top: 1px solid var(--vscode-textSeparator-foreground);
         }
 
+        .git-section {
+            margin-top: 16px;
+            padding: 14px 16px;
+            background: var(--vscode-textCodeBlock-background);
+            border-radius: 6px;
+            border: 1px solid var(--vscode-input-border);
+        }
+
         .btn {
             padding: 10px 24px;
             border: none;
@@ -570,6 +600,24 @@ export class ExpectedValuesWebview {
         </button>
     </div>
 
+    <div class="git-section">
+        <label for="git-commit-message" style="display:block; margin-bottom:6px; font-weight:500; font-size:13px; color:var(--vscode-foreground);">
+            📝 Git Commit Message
+        </label>
+        <div style="display:flex; gap:10px; align-items:center;">
+            <input
+                type="text"
+                id="git-commit-message"
+                placeholder="Enter commit message…"
+                style="flex:1; padding:10px 12px; background:var(--vscode-input-background); color:var(--vscode-input-foreground); border:1px solid var(--vscode-input-border); border-radius:4px; font-size:14px; font-family:var(--vscode-editor-font-family);"
+            />
+            <button class="btn btn-secondary" onclick="saveAndGit()">
+                <span>📤</span>
+                <span>Save &amp; Git Push</span>
+            </button>
+        </div>
+    </div>
+
     <script>
         const vscode = acquireVsCodeApi();
         let customTestCounter = 0;
@@ -750,6 +798,27 @@ export class ExpectedValuesWebview {
                 values: values,
                 customTests: customTests,
                 disabledTests: disabledTests
+            });
+        }
+
+        function saveAndGit() {
+            const commitMessage = document.getElementById('git-commit-message').value.trim();
+            if (!commitMessage) {
+                document.getElementById('git-commit-message').focus();
+                document.getElementById('git-commit-message').style.borderColor = 'var(--vscode-inputValidation-errorBorder)';
+                alert('Please enter a commit message before pushing.');
+                return;
+            }
+            document.getElementById('git-commit-message').style.borderColor = '';
+            const values = collectBoundaryValues();
+            const customTests = collectCustomTests();
+            const disabledTests = getDisabledTests();
+            vscode.postMessage({
+                command: 'saveAndGit',
+                values: values,
+                customTests: customTests,
+                disabledTests: disabledTests,
+                commitMessage: commitMessage
             });
         }
 
