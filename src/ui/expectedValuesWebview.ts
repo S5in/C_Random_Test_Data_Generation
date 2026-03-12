@@ -136,7 +136,6 @@ export class ExpectedValuesWebview {
             `<input type="text" class="custom-param-input" data-param="${p}" placeholder="${p}" />`
         ).join('\n                ');
                 // Syntax-highlighted preview of the generated code
-        const escapedCode = this.escapeHtml(testCode);
         return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -533,7 +532,7 @@ export class ExpectedValuesWebview {
                 👁️ Preview of the generated test file. Save to apply your expected values.
             </p>
             <div class="preview-container">
-                <pre class="code-preview" id="code-preview-content">${escapedCode ? this.syntaxHighlight(escapedCode) : '<!-- No preview available -->'}</pre>
+                <pre class="code-preview" id="code-preview-content">${testCode ? this.syntaxHighlight(testCode) : ''}</pre>
             </div>
     </div>
 
@@ -726,11 +725,16 @@ export class ExpectedValuesWebview {
     }
 
     /**
-    * Apply basic syntax highlighting to HTML-escaped C++ code.
-     * Works on already-HTML-escaped text, inserting <span> tags.
+    * Apply basic syntax highlighting to raw (unescaped) C++ code.
+     * Escapes HTML first, then inserts <span> tags for highlighting.
      */
-    private static syntaxHighlight(escapedCode: string): string {
-        return escapedCode
+    private static syntaxHighlight(rawCode: string): string {
+        // Step 1: HTML-escape the raw code
+        let code = this.escapeHtml(rawCode);
+
+        // Step 2: Apply highlighting (all regexes run on already-escaped text,
+        //         span tags are inserted as literal HTML)
+        code = code
             // Comments  // ...
             .replace(/(\/\/[^\n]*)/g, '<span class="cmt">$1</span>')
             // #include / #define preprocessor
@@ -743,6 +747,8 @@ export class ExpectedValuesWebview {
                 '<span class="typ">$1</span>')
             // Numbers (simple)
             .replace(/\b(\d+\.?\d*[fFlLuU]*)\b/g, '<span class="num">$1</span>');
+
+        return code;
     }
     /**
      * Save expected values to test file.
