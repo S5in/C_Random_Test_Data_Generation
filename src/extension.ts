@@ -19,6 +19,7 @@ import { CMakeGenerator } from './generator/cmakeGenerator';
 import { BuildRunner } from './build/buildRunner';
 import { ExpectedValuesWebview } from './ui/expectedValuesWebview';
 import { TestDensity } from './generator/boundaryValues';
+import { FunctionParameter } from './types';
 
 let buildRunner: BuildRunner;
 
@@ -83,14 +84,14 @@ export async function activate(context: vscode.ExtensionContext) {
                         );
 
                         if (choice === 'Fill Expected Values') {
-                            // Extract parameter names for custom tests
-                            const paramNames = result.testCases[0]?.paramValues?.map(p => p.name) || [];
+
 
                             const shouldBuildAndRun = await ExpectedValuesWebview.show(
                                 result.testFilePath, 
                                 result.testCases,
                                 result.functionName,
-                                paramNames,
+                                result.parameters,
+                                result.returnType,
                                 result.testCode
                             );
                             
@@ -204,6 +205,8 @@ async function generateTestForCurrentFunction(parser: any): Promise<{
     testFilePath: string;
     testCases: TestCaseInfo[];
     testCode: string;
+    parameters: FunctionParameter[];
+    returnType: string;
 } | null> {
     
     // ========================================
@@ -387,7 +390,9 @@ async function generateTestForCurrentFunction(parser: any): Promise<{
             executableName,
             testFilePath,
             testCases,
-            testCode
+            testCode,
+            parameters: targetFunction.parameters,
+            returnType: targetFunction.returnType
         };
 
     } catch (error) {
