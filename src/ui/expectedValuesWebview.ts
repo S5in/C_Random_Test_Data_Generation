@@ -7,6 +7,8 @@
 import * as vscode from 'vscode';
 import * as fs from 'fs';
 import { TestCaseInfo } from '../generator/testGenerator';
+import { FunctionParameter } from '../types';
+import { isArrayType, isPointerType, isStructType } from '../generator/boundaryValues';
 
 interface CustomTest {
     name: string;
@@ -23,7 +25,8 @@ export class ExpectedValuesWebview {
         testFilePath: string, 
         testCases: TestCaseInfo[],
         functionName: string,
-        paramNames: string[],
+        params: FunctionParameter[],
+        returnType: string,
         testCode?: string
     ): Promise<boolean> {
         return new Promise((resolve) => {
@@ -37,7 +40,7 @@ export class ExpectedValuesWebview {
                 }
             );
 
-             panel.webview.html = this.getHtmlContent(testCases, functionName, paramNames, testCode || '');
+             panel.webview.html = this.getHtmlContent(testCases, functionName, params, returnType, testCode || '');
 
             let resolved = false;
 
@@ -48,7 +51,7 @@ export class ExpectedValuesWebview {
                     switch (message.command) {
                         case 'save': {
                             await this.saveExpectedValues(testFilePath, message.values, message.disabledTests || []);
-                            await this.saveCustomTests(testFilePath, functionName, paramNames, message.customTests || []);
+                            await this.saveCustomTests(testFilePath, functionName, params, returnType, message.customTests || []);
                             resolved = true;
                             panel.dispose();
                             const totalTests = message.values.length + (message.customTests?.length || 0);
@@ -58,7 +61,7 @@ export class ExpectedValuesWebview {
                         }
                         case 'saveOnly': {
                             await this.saveExpectedValues(testFilePath, message.values, message.disabledTests || []);
-                            await this.saveCustomTests(testFilePath, functionName, paramNames, message.customTests || []);
+                            await this.saveCustomTests(testFilePath, functionName, params, returnType, message.customTests || []);
                             resolved = true;
                             panel.dispose();
                             const total = message.values.length + (message.customTests?.length || 0);
@@ -90,9 +93,11 @@ export class ExpectedValuesWebview {
     private static getHtmlContent(
         testCases: TestCaseInfo[], 
         functionName: string,
-        paramNames: string[],
+        params: FunctionParameter[],
+        returnType: string,
         testCode: string
     ): string {
+        const paramNames = params.map(p => p.name);
         const testCaseHtml = testCases.map((tc, index) => `
             <div class="test-case" id="test-case-${index}">
                 <div class="test-header">
@@ -132,10 +137,11 @@ export class ExpectedValuesWebview {
             </div>
         `).join('');
 
-        const paramInputs = paramNames.map(p => 
-            `<input type="text" class="custom-param-input" data-param="${p}" placeholder="${p}" />`
+        const paramInputs = params.map(p => 
+            `<input type="text" class="custom-param-input" data-param="${p.name}" placeholder="${p.name}" />`
         ).join('\n                ');
-                // Syntax-highlighted preview of the generated code
+        const paramInfosJson = JSON.stringify(params.map(p => ({ name: p.name, type: p.type })));
+        // Syntax-highlighted preview of the generated code
         const escapedCode = this.escapeHtml(testCode);
         return `<!DOCTYPE html>
 <html lang="en">
@@ -556,6 +562,19 @@ export class ExpectedValuesWebview {
         const vscode = acquireVsCodeApi();
         let customTestCounter = 0;
         const paramNames = ${JSON.stringify(paramNames)};
+        const paramInfos = ${paramInfosJson};
+
+        function getParamPlaceholder(paramInfo) {
+            const type = paramInfo.type || '';
+            if (type.includes('[')) {
+                return type.replace(/\[\d*\]/, '[]') + ' e.g. 1,2,3 or {1,2,3}';
+            } else if (type.includes('*')) {
+                return type + ' e.g. 0';
+            } else if (type) {
+                return type + ' e.g. 0';
+            }
+            return '0';
+        }
 
         function updateSelectedCount() {
             const checkboxes = document.querySelectorAll('.test-enabled-checkbox');
@@ -605,8 +624,9 @@ export class ExpectedValuesWebview {
             
             let html = '<input type="text" class="custom-name-input" placeholder="' + defaultName + '" value="' + defaultName + '" />';
             
-            paramNames.forEach(param => {
-                html += '<input type="text" class="custom-param-input" data-param="' + param + '" placeholder="0" />';
+            paramInfos.forEach(paramInfo => {
+                const placeholder = getParamPlaceholder(paramInfo);
+                html += '<input type="text" class="custom-param-input" data-param="' + paramInfo.name + '" placeholder="' + placeholder + '" />';
             });
             
             html += '<input type="text" class="custom-expected-input" placeholder="0" />';
@@ -843,7 +863,8 @@ export class ExpectedValuesWebview {
     private static async saveCustomTests(
         testFilePath: string,
         functionName: string,
-        paramNames: string[],
+        params: FunctionParameter[],
+        returnType: string,
         customTests: Array<{name: string; params: {[key: string]: string}; expected: string}>
     ): Promise<void> {
         if (!customTests || customTests.length === 0) {
@@ -893,14 +914,16 @@ export class ExpectedValuesWebview {
                 customTestsCode += `TEST(${functionName}Test, ${uniqueName}) {\n`;
                 customTestsCode += '    // Arrange (Custom)\n';
 
-                // Iterate through parameter names and get values from params object
-                for (const paramName of paramNames) {
-                    const value = test.params[paramName] || '0';
-                    customTestsCode += `    int ${paramName} = ${value};\n`;
+                // Iterate through parameters and emit correct C++ declarations
+                for (const param of params) {
+                    const value = test.params[param.name] || '0';
+                    customTestsCode += `    ${this.buildParamDeclaration(param, value)};\n`;
                 }
 
+                const resultType = returnType.trim() || 'int';
+                const paramCallArgs = params.map(p => p.name).join(', ');
                 customTestsCode += '\n    // Act\n';
-                customTestsCode += `    int result = ${functionName}(${paramNames.join(', ')});\n`;
+                customTestsCode += `    ${resultType} result = ${functionName}(${paramCallArgs});\n`;
                 customTestsCode += '\n    // Assert\n';
                 
                 const expectedValue = test.expected || '0';
@@ -917,6 +940,34 @@ export class ExpectedValuesWebview {
             console.error('Failed to save custom tests:', error);
             vscode.window.showErrorMessage(`Failed to save custom tests: ${error}`);
             throw error;
+        }
+    }
+
+    /**
+     * Build a C++ parameter declaration for a custom test Arrange section.
+     * Handles array, pointer, struct, and primitive types correctly.
+     */
+    private static buildParamDeclaration(param: FunctionParameter, value: string): string {
+        const type = param.type.trim();
+        const name = param.name;
+
+        if (isArrayType(type)) {
+            // e.g. "int[]" or "int[10]" → int arr[] = {5, 4};
+            const baseType = type.replace(/\[.*\]/, '').trim();
+            // Wrap value in braces if not already wrapped
+            const braceValue = /^\s*\{/.test(value)
+                ? value
+                : `{${value.split(',').map(v => v.trim()).join(', ')}}`;
+            return `${baseType} ${name}[] = ${braceValue}`;
+        } else if (isPointerType(type)) {
+            // e.g. "int*" → int* ptr = value;
+            return `${type} ${name} = ${value}`;
+        } else if (isStructType(type)) {
+            // e.g. "struct Point" → struct Point p = value;
+            return `${type} ${name} = ${value}`;
+        } else {
+            // Primitive: int, float, double, char, size_t, etc.
+            return `${type} ${name} = ${value}`;
         }
     }
 
