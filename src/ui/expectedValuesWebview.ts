@@ -505,6 +505,19 @@ export class ExpectedValuesWebview {
             or special keywords: <code>overflow</code>, <code>undefined</code>, <code>skip</code>.
             Uncheck a test to exclude it from the saved file.
         </p>
+        <div style="margin-bottom: 15px; padding: 10px; background: var(--vscode-textCodeBlock-background); border-radius: 4px;">
+            <label class="checkbox-label" style="font-weight: 500;">
+                <input
+                    type="checkbox"
+                    id="toggle-all-checkbox"
+                    class="test-enabled-checkbox"
+                    checked
+                    onchange="toggleAllTests()"
+                    style="width: 18px; height: 18px;"
+                />
+                <span>Select/Deselect All Tests</span>
+            </label>
+        </div>
         <div class="test-cases">
             ${testCaseHtml}
         </div>
@@ -574,10 +587,25 @@ export class ExpectedValuesWebview {
             return '0';
         }
 
-        function updateSelectedCount() {
-            const checkboxes = document.querySelectorAll('.test-enabled-checkbox');
-            let selected = 0;
+        function toggleAllTests() {
+            const toggleAllCheckbox = document.getElementById('toggle-all-checkbox');
+            const checkboxes = document.querySelectorAll('.test-enabled-checkbox:not(#toggle-all-checkbox)');
+
             checkboxes.forEach(cb => {
+                cb.checked = toggleAllCheckbox.checked;
+            });
+
+            updateSelectedCount();
+        }
+
+        function updateSelectedCount() {
+            const checkboxes = document.querySelectorAll('.test-enabled-checkbox:not(#toggle-all-checkbox)');
+            const toggleAllCheckbox = document.getElementById('toggle-all-checkbox');
+            let selected = 0;
+            let total = 0;
+
+            checkboxes.forEach(cb => {
+                total++;
                 const testCase = document.getElementById('test-case-' + cb.getAttribute('data-test-index'));
                 if (cb.checked) {
                     selected++;
@@ -586,10 +614,23 @@ export class ExpectedValuesWebview {
                     if (testCase) { testCase.classList.add('disabled'); }
                 }
             });
+
             document.getElementById('selected-count').textContent = selected;
+
+            if (toggleAllCheckbox) {
+                if (selected === 0) {
+                    toggleAllCheckbox.checked = false;
+                    toggleAllCheckbox.indeterminate = false;
+                } else if (selected === total) {
+                    toggleAllCheckbox.checked = true;
+                    toggleAllCheckbox.indeterminate = false;
+                } else {
+                    toggleAllCheckbox.indeterminate = true;
+                }
+            }
         }
         function getDisabledTests() {
-            const checkboxes = document.querySelectorAll('.test-enabled-checkbox');
+            const checkboxes = document.querySelectorAll('.test-enabled-checkbox:not(#toggle-all-checkbox)');
             const disabled = [];
             checkboxes.forEach(cb => {
                 if (!cb.checked) {
