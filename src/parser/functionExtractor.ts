@@ -61,10 +61,10 @@ export class FunctionExtractor {
 
             // Extract function name
             const declaratorNode = node.childForFieldName('declarator');
-            if (!declaratorNode) return null;
+            if (!declaratorNode) { return null; }
 
             const functionName = this.extractFunctionName(declaratorNode);
-            if (!functionName) return null;
+            if (!functionName) { return null; }
 
             // Extract parameters
             const parameters = this.extractParameters(declaratorNode);
@@ -113,8 +113,8 @@ export class FunctionExtractor {
         const parameters: FunctionParameter[] = [];
         
         const paramsNode = declaratorNode.childForFieldName('parameters');
-        if (!paramsNode) return parameters;
-
+        if (!paramsNode) { return parameters; }
+        
         for (let i = 0; i < paramsNode.childCount; i++) {
             const child = paramsNode.child(i);
             

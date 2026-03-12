@@ -23,7 +23,8 @@ export class ExpectedValuesWebview {
         testFilePath: string, 
         testCases: TestCaseInfo[],
         functionName: string,
-        paramNames: string[]
+        paramNames: string[],
+        testCode?: string
     ): Promise<boolean> {
         return new Promise((resolve) => {
             const panel = vscode.window.createWebviewPanel(
@@ -36,17 +37,17 @@ export class ExpectedValuesWebview {
                 }
             );
 
-            panel.webview.html = this.getHtmlContent(testCases, functionName, paramNames);
+             panel.webview.html = this.getHtmlContent(testCases, functionName, paramNames, testCode || '');
 
             let resolved = false;
 
             panel.webview.onDidReceiveMessage(
                 async message => {
-                    if (resolved) return;
+                    if (resolved) { return; }
 
                     switch (message.command) {
-                        case 'save':
-                            await this.saveExpectedValues(testFilePath, message.values);
+                        case 'save': {
+                            await this.saveExpectedValues(testFilePath, message.values, message.disabledTests || []);
                             await this.saveCustomTests(testFilePath, functionName, paramNames, message.customTests || []);
                             resolved = true;
                             panel.dispose();
@@ -54,8 +55,9 @@ export class ExpectedValuesWebview {
                             vscode.window.showInformationMessage(`✅ Saved ${totalTests} test(s)! Building and running...`);
                             resolve(true);
                             return;
-                        case 'saveOnly':
-                            await this.saveExpectedValues(testFilePath, message.values);
+                        }
+                        case 'saveOnly': {
+                            await this.saveExpectedValues(testFilePath, message.values, message.disabledTests || []);
                             await this.saveCustomTests(testFilePath, functionName, paramNames, message.customTests || []);
                             resolved = true;
                             panel.dispose();
@@ -63,6 +65,7 @@ export class ExpectedValuesWebview {
                             vscode.window.showInformationMessage(`✅ Saved ${total} test(s)!`);
                             resolve(false);
                             return;
+                        }
                         case 'skip':
                             resolved = true;
                             panel.dispose();
@@ -87,13 +90,24 @@ export class ExpectedValuesWebview {
     private static getHtmlContent(
         testCases: TestCaseInfo[], 
         functionName: string,
-        paramNames: string[]
+        paramNames: string[],
+        testCode: string
     ): string {
         const testCaseHtml = testCases.map((tc, index) => `
-            <div class="test-case">
+            <div class="test-case" id="test-case-${index}">
                 <div class="test-header">
-                    <span class="test-icon">🧪</span>
-                    <span class="test-name">${this.escapeHtml(tc.testName)}</span>
+                    <label class="checkbox-label">
+                        <input
+                            type="checkbox"
+                            id="enabled-${index}"
+                            class="test-enabled-checkbox"
+                            data-test-index="${index}"
+                            checked
+                            onchange="updateSelectedCount()"
+                        />
+                        <span class="test-icon">🧪</span>
+                        <span class="test-name">${this.escapeHtml(tc.testName)}</span>
+                    </label>
                 </div>
                 <div class="test-inputs">
                     <span class="label">Inputs:</span>
@@ -121,7 +135,8 @@ export class ExpectedValuesWebview {
         const paramInputs = paramNames.map(p => 
             `<input type="text" class="custom-param-input" data-param="${p}" placeholder="${p}" />`
         ).join('\n                ');
-
+                // Syntax-highlighted preview of the generated code
+        const escapedCode = this.escapeHtml(testCode);
         return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -405,6 +420,45 @@ export class ExpectedValuesWebview {
         .add-custom-btn {
             margin: 20px 0;
         }
+                /* Preview tab styles */
+        .preview-container {
+            position: relative;
+        }
+        .code-preview {
+            background: var(--vscode-editor-background);
+            border: 1px solid var(--vscode-panel-border);
+            border-radius: 4px;
+            padding: 16px;
+            overflow-x: auto;
+            font-family: var(--vscode-editor-font-family, monospace);
+            font-size: 13px;
+            line-height: 1.5;
+            white-space: pre;
+            color: var(--vscode-editor-foreground);
+            max-height: 70vh;
+            overflow-y: auto;
+        }
+        /* Syntax highlighting */
+        .kw  { color: #569cd6; }  /* keywords: TEST, EXPECT_EQ, etc. */
+        .inc { color: #c586c0; }  /* #include */
+        .str { color: #ce9178; }  /* strings */
+        .cmt { color: #6a9955; }  /* comments */
+        .num { color: #b5cea8; }  /* numbers */
+        .typ { color: #4ec9b0; }  /* types */
+        .checkbox-label {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            cursor: pointer;
+        }
+        .test-enabled-checkbox {
+            width: 16px;
+            height: 16px;
+            cursor: pointer;
+        }
+        .test-case.disabled {
+            opacity: 0.45;
+        }
     </style>
 </head>
 <body>
@@ -413,22 +467,29 @@ export class ExpectedValuesWebview {
         <p>Review boundary tests and add custom test cases with your own input values</p>
         <div class="stats">
             <div class="stat-item">
-                <span class="stat-label">Boundary tests:</span>
+                <span class="stat-label">Tests generated:</span>
                 <span class="stat-value">${testCases.length}</span>
             </div>
             <div class="stat-item">
-                <span class="stat-label">Custom tests:</span>
+                <span class="stat-label">Selected:</span>
+                <span class="stat-value" id="selected-count">${testCases.length}</span>
+            </div>
+            <div class="stat-item">
+                <span class="stat-label">Custom:</span>
                 <span class="stat-value" id="custom-count">0</span>
             </div>
         </div>
     </div>
 
     <div class="tabs">
-        <button class="tab active" onclick="switchTab('boundary')">
+        <button class="tab active" onclick="switchTab(event, 'boundary')">
             🧪 Boundary Tests (${testCases.length})
         </button>
-        <button class="tab" onclick="switchTab('custom')">
+        <button class="tab" onclick="switchTab(event, 'custom')">
             ➕ Custom Tests (<span id="custom-tab-count">0</span>)
+        </button>
+        <button class="tab" onclick="switchTab(event, 'preview')">
+            👁️ Preview
         </button>
     </div>
 
@@ -436,7 +497,8 @@ export class ExpectedValuesWebview {
     <div id="boundary-tab" class="tab-content active">
         <p style="color: var(--vscode-descriptionForeground); margin-bottom: 15px;">
             💡 <strong>Tip:</strong> Enter numbers (e.g., <code>42</code>, <code>-100</code>), 
-            or special keywords: <code>overflow</code>, <code>undefined</code>, <code>skip</code>
+            or special keywords: <code>overflow</code>, <code>undefined</code>, <code>skip</code>.
+            Uncheck a test to exclude it from the saved file.
         </p>
         <div class="test-cases">
             ${testCaseHtml}
@@ -464,6 +526,15 @@ export class ExpectedValuesWebview {
             <span>➕</span>
             <span>Add Custom Test</span>
         </button>
+        </div>
+        <!-- Tab 3: Preview -->
+        <div id="preview-tab" class="tab-content">
+            <p style="color: var(--vscode-descriptionForeground); margin-bottom: 15px;">
+                👁️ Preview of the generated test file. Save to apply your expected values.
+            </p>
+            <div class="preview-container">
+                <pre class="code-preview" id="code-preview-content">${escapedCode ? this.syntaxHighlight(escapedCode) : '<!-- No preview available -->'}</pre>
+            </div>
     </div>
 
     <div class="button-group">
@@ -486,10 +557,34 @@ export class ExpectedValuesWebview {
         let customTestCounter = 0;
         const paramNames = ${JSON.stringify(paramNames)};
 
-        function switchTab(tabName) {
+        function updateSelectedCount() {
+            const checkboxes = document.querySelectorAll('.test-enabled-checkbox');
+            let selected = 0;
+            checkboxes.forEach(cb => {
+                const testCase = document.getElementById('test-case-' + cb.getAttribute('data-test-index'));
+                if (cb.checked) {
+                    selected++;
+                    if (testCase) { testCase.classList.remove('disabled'); }
+                } else {
+                    if (testCase) { testCase.classList.add('disabled'); }
+                }
+            });
+            document.getElementById('selected-count').textContent = selected;
+        }
+        function getDisabledTests() {
+            const checkboxes = document.querySelectorAll('.test-enabled-checkbox');
+            const disabled = [];
+            checkboxes.forEach(cb => {
+                if (!cb.checked) {
+                    disabled.push(parseInt(cb.getAttribute('data-test-index'), 10));
+                }
+            });
+            return disabled;
+        }
+        function switchTab(evt, tabName) {
             // Update tab buttons
             document.querySelectorAll('.tab').forEach(tab => tab.classList.remove('active'));
-            event.target.classList.add('active');
+            evt.target.classList.add('active');
 
             // Update tab content
             document.querySelectorAll('.tab-content').forEach(content => content.classList.remove('active'));
@@ -578,20 +673,24 @@ export class ExpectedValuesWebview {
         function saveAndRun() {
             const values = collectBoundaryValues();
             const customTests = collectCustomTests();
+            const disabledTests = getDisabledTests();
             vscode.postMessage({
                 command: 'save',
                 values: values,
-                customTests: customTests
+                customTests: customTests,
+                disabledTests: disabledTests
             });
         }
 
         function saveOnly() {
             const values = collectBoundaryValues();
             const customTests = collectCustomTests();
+            const disabledTests = getDisabledTests();
             vscode.postMessage({
                 command: 'saveOnly',
                 values: values,
-                customTests: customTests
+                customTests: customTests,
+                disabledTests: disabledTests
             });
         }
 
@@ -607,6 +706,7 @@ export class ExpectedValuesWebview {
             if (firstInput) {
                 firstInput.focus();
             }
+            updateSelectedCount();
         });
 
         // Allow Enter key to move to next input
@@ -626,21 +726,81 @@ export class ExpectedValuesWebview {
     }
 
     /**
-     * Save expected values to test file (existing functionality)
+    * Apply basic syntax highlighting to HTML-escaped C++ code.
+     * Works on already-HTML-escaped text, inserting <span> tags.
+     */
+    private static syntaxHighlight(escapedCode: string): string {
+        return escapedCode
+            // Comments  // ...
+            .replace(/(\/\/[^\n]*)/g, '<span class="cmt">$1</span>')
+            // #include / #define preprocessor
+            .replace(/(#\w+)/g, '<span class="inc">$1</span>')
+            // C++ keywords and GTest macros
+            .replace(/\b(TEST|TEST_F|EXPECT_EQ|EXPECT_FLOAT_EQ|EXPECT_DOUBLE_EQ|EXPECT_NEAR|EXPECT_TRUE|EXPECT_FALSE|FAIL|SUCCEED|extern|class|protected|void|return|if|else|for|while|do|break|continue|nullptr|NULL|true|false|override)\b/g,
+                '<span class="kw">$1</span>')
+            // C types
+            .replace(/\b(int|float|double|char|long|short|unsigned|signed|struct|size_t|bool)\b/g,
+                '<span class="typ">$1</span>')
+            // Numbers (simple)
+            .replace(/\b(\d+\.?\d*[fFlLuU]*)\b/g, '<span class="num">$1</span>');
+    }
+    /**
+     * Save expected values to test file.
+     * Disabled test indices are commented out rather than having FAIL() replaced.
      */
     private static async saveExpectedValues(
         testFilePath: string,
-        values: Array<{ index: number; value: string }>
+        values: Array<{ index: number; value: string }>,
+        disabledTests: number[] = []
     ): Promise<void> {
-        if (values.length === 0) {
-            return;
-        }
 
         try {
             let content = await fs.promises.readFile(testFilePath, 'utf8');
             const lines = content.split('\n');
             let testIndex = -1;
+            // Track lines that mark the start of a disabled TEST block
+            const disabledStartLines = new Set<number>();
 
+            // First pass: identify which TEST blocks are disabled and mark their start
+            if (disabledTests.length > 0) {
+                let idx = -1;
+                for (let i = 0; i < lines.length; i++) {
+                    if (lines[i].includes('TEST(') || lines[i].includes('TEST_F(')) {
+                        idx++;
+                        if (disabledTests.includes(idx)) {
+                            disabledStartLines.add(i);
+                        }
+                    }
+                }
+            }
+            // Second pass: comment out disabled TEST blocks
+            if (disabledStartLines.size > 0) {
+                let inDisabledBlock = false;
+                let braceDepth = 0;
+                for (let i = 0; i < lines.length; i++) {
+                    if (disabledStartLines.has(i)) {
+                        inDisabledBlock = true;
+                        braceDepth = 0;
+                    }
+                    if (inDisabledBlock) {
+                        for (const ch of lines[i]) {
+                            if (ch === '{') { braceDepth++; }
+                            if (ch === '}') {
+                                braceDepth--;
+                                if (braceDepth === 0) {
+                                    lines[i] = '// ' + lines[i];
+                                    inDisabledBlock = false;
+                                    break;
+                                }
+                            }
+                        }
+                        if (inDisabledBlock) {
+                            lines[i] = '// ' + lines[i];
+                        }
+                    }
+                }
+            }
+            testIndex = -1;
             for (let i = 0; i < lines.length; i++) {
                 const line = lines[i];
 

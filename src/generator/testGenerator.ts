@@ -1,12 +1,17 @@
 /**
  * Test Generator
- * 
- * Generates Google Test code for C functions
- * NO BEHAVIOR GUESSING - All expected values must be provided by developer
+ *
+ * Generates Google Test code for C functions.
+ * NO BEHAVIOR GUESSING - All expected values must be provided by the developer.
+ *
+ * Iteration 2 additions:
+ *   - Correct assertion macros per return type (EXPECT_FLOAT_EQ, EXPECT_DOUBLE_EQ)
+ *   - Pointer / array / struct parameter declarations via paramDeclarations/paramPreambles
+ *   - testDensity support forwarded to generateBoundarySets()
  */
 
 import { FunctionInfo, GlobalVariable } from '../types';
-import { generateBoundarySets, getBoundariesForType } from './boundaryValues';
+import { generateBoundarySets, getBoundariesForType, TestDensity, isPointerType, isArrayType, isStructType } from './boundaryValues';
 
 export interface TestCaseInfo {
     testName: string;
@@ -16,24 +21,30 @@ export interface TestCaseInfo {
 }
 
 export class TestGenerator {
+
+    // -----------------------------------------------------------------------
+    // Public API
+    // -----------------------------------------------------------------------
+
     /**
-     * Generate tests AND return test case information
+     * Generate tests AND return test case information.
      */
     static generateTestsWithCaseInfo(
         func: FunctionInfo,
         sourceFileName: string,
-        usedGlobals: GlobalVariable[]
+        usedGlobals: GlobalVariable[],
+        density: TestDensity = 'standard'
     ): { testCode: string; testCases: TestCaseInfo[] } {
 
         const testCases: TestCaseInfo[] = [];
         let testCode = this.generateHeader(sourceFileName);
 
         if (usedGlobals.length > 0) {
-            const result = this.generateFixtureTestsWithInfo(func, usedGlobals);
+            const result = this.generateFixtureTestsWithInfo(func, usedGlobals, density);
             testCode += result.code;
             testCases.push(...result.cases);
         } else {
-            const result = this.generateRegularTestsWithInfo(func);
+            const result = this.generateRegularTestsWithInfo(func, density);
             testCode += result.code;
             testCases.push(...result.cases);
         }
@@ -42,18 +53,30 @@ export class TestGenerator {
     }
 
     /**
-     * Generate regular tests AND collect info in the same loop
+     * @deprecated Use generateTestsWithCaseInfo instead
      */
-    private static generateRegularTestsWithInfo(func: FunctionInfo): {
-        code: string;
-        cases: TestCaseInfo[];
-    } {
+    static generateTestsForFunction(
+        func: FunctionInfo,
+        sourceFileName: string,
+        usedGlobals: GlobalVariable[]
+    ): string {
+        return this.generateTestsWithCaseInfo(func, sourceFileName, usedGlobals).testCode;
+    }
+
+    // -----------------------------------------------------------------------
+    // Regular (no globals) test generation
+    // -----------------------------------------------------------------------
+
+    private static generateRegularTestsWithInfo(
+        func: FunctionInfo,
+        density: TestDensity
+    ): { code: string; cases: TestCaseInfo[] } {
         let code = `// ============================================================================\n`;
         code += `// Tests for: ${func.name}()\n`;
         code += `// ============================================================================\n\n`;
 
         const cases: TestCaseInfo[] = [];
-        const boundarySets = generateBoundarySets(func.parameters);
+        const boundarySets = generateBoundarySets(func.parameters, density);
 
         for (const set of boundarySets) {
             const testName = this.sanitizeLabel(set.label);
@@ -66,13 +89,11 @@ export class TestGenerator {
                 code += '\n';
                 code += '    // Assert\n';
                 code += '    // TODO: Provide expected value\n';
-                code += '    FAIL() << "Expected value needed. Got: " << result;\n';
+                code += `    FAIL() << "Expected value needed. Got: " << result;\n`;
             } else {
                 code += '    // Arrange\n';
                 for (let i = 0; i < func.parameters.length; i++) {
-                    const param = func.parameters[i];
-                    const value = set.values[i];
-                    code += `    ${param.type} ${param.name} = ${value};\n`;
+                    code += this.buildParamDeclaration(func.parameters[i], set, i);
                 }
 
                 code += '\n';
@@ -84,19 +105,15 @@ export class TestGenerator {
                 code += '\n';
                 code += '    // Assert\n';
                 code += '    // TODO: Provide expected value\n';
-                code += '    FAIL() << "Expected value needed. Got: " << result;\n';
+                code += `    FAIL() << "Expected value needed. Got: " << result;\n`;
             }
 
             code += '}\n\n';
 
-            // Collect test case info
-            const paramValues: { name: string; value: string }[] = [];
-            for (let i = 0; i < func.parameters.length; i++) {
-                paramValues.push({
-                    name: func.parameters[i].name,
-                    value: set.values[i]
-                });
-            }
+            const paramValues = func.parameters.map((p, i) => ({
+                name: p.name,
+                value: set.values[i] ?? '/* unset */'
+            }));
 
             cases.push({
                 testName,
@@ -105,25 +122,24 @@ export class TestGenerator {
             });
         }
 
+
         return { code, cases };
     }
 
-    /**
-     * Generate fixture tests AND collect info
-     */
+    // -----------------------------------------------------------------------
+    // Fixture (with globals) test generation
+    // -----------------------------------------------------------------------
+
     private static generateFixtureTestsWithInfo(
         func: FunctionInfo,
-        globals: GlobalVariable[]
-    ): {
-        code: string;
-        cases: TestCaseInfo[];
-    } {
+        globals: GlobalVariable[],
+        density: TestDensity
+    ): { code: string; cases: TestCaseInfo[] } {
         const cases: TestCaseInfo[] = [];
 
-        // This calls the private generateFixtureClass method below
         let code = this.generateFixtureClass(func.name, globals);
 
-        const paramResult = this.generateParameterBoundaryTestsWithInfo(func, globals);
+        const paramResult = this.generateParameterBoundaryTestsWithInfo(func, globals, density);
         code += paramResult.code;
         cases.push(...paramResult.cases);
 
@@ -140,16 +156,14 @@ export class TestGenerator {
 
     private static generateParameterBoundaryTestsWithInfo(
         func: FunctionInfo,
-        globals: GlobalVariable[]
-    ): {
-        code: string;
-        cases: TestCaseInfo[];
-    } {
+        globals: GlobalVariable[],
+        density: TestDensity
+    ): { code: string; cases: TestCaseInfo[] } {
         const className = this.capitalize(func.name) + 'Fixture';
         let code = '// Parameter Boundary Tests\n\n';
         const cases: TestCaseInfo[] = [];
 
-        const boundarySets = generateBoundarySets(func.parameters);
+        const boundarySets = generateBoundarySets(func.parameters, density);
 
         for (const set of boundarySets) {
             const testName = `Param_${this.sanitizeLabel(set.label)}`;
@@ -168,9 +182,7 @@ export class TestGenerator {
             } else {
                 code += '    // Arrange\n';
                 for (let i = 0; i < func.parameters.length; i++) {
-                    const param = func.parameters[i];
-                    const value = set.values[i];
-                    code += `    ${param.type} ${param.name} = ${value};\n`;
+                    code += this.buildParamDeclaration(func.parameters[i], set, i);
                 }
                 code += '\n';
                 code += '    // Act\n';
@@ -182,24 +194,17 @@ export class TestGenerator {
             code += '\n';
             code += '    // Assert\n';
             code += '    // TODO: Provide expected value\n';
-            code += '    FAIL() << "Expected value needed. Got: " << result;\n';
+            code += `    FAIL() << "Expected value needed. Got: " << result;\n`;
             code += '}\n\n';
 
-            const paramValues: { name: string; value: string }[] = [];
-            const globalValues: { name: string; value: string }[] = [];
-
-            for (let i = 0; i < func.parameters.length; i++) {
-                paramValues.push({
-                    name: func.parameters[i].name,
-                    value: set.values[i]
-                });
-            }
-            for (const global of globals) {
-                globalValues.push({
-                    name: global.name,
-                    value: global.initialValue || '0'
-                });
-            }
+            const paramValues = func.parameters.map((p, i) => ({
+                name: p.name,
+                value: set.values[i] ?? '/* unset */'
+            }));
+            const globalValues = globals.map(g => ({
+                name: g.name,
+                value: g.initialValue || '0'
+            }));
 
             cases.push({
                 testName,
@@ -215,10 +220,7 @@ export class TestGenerator {
     private static generateGlobalBoundaryTestsWithInfo(
         func: FunctionInfo,
         globals: GlobalVariable[]
-    ): {
-        code: string;
-        cases: TestCaseInfo[];
-    } {
+    ): { code: string; cases: TestCaseInfo[] } {
         const className = this.capitalize(func.name) + 'Fixture';
         let code = '// Global Variable Boundary Tests\n\n';
         const cases: TestCaseInfo[] = [];
@@ -248,8 +250,7 @@ export class TestGenerator {
                 if (func.parameters.length > 0) {
                     code += '    // Set parameters to safe values\n';
                     for (const param of func.parameters) {
-                        const safeValue = this.getSafeValue(param.type);
-                        code += `    ${param.type} ${param.name} = ${safeValue};\n`;
+                        code += this.buildSafeParamDeclaration(param);
                     }
                 }
 
@@ -264,34 +265,24 @@ export class TestGenerator {
                 code += '\n';
                 code += '    // Assert\n';
                 code += '    // TODO: Provide expected value\n';
-                code += '    FAIL() << "Expected value needed. Got: " << result;\n';
+                code += `    FAIL() << "Expected value needed. Got: " << result;\n`;
                 code += '}\n\n';
 
-                const paramValues: { name: string; value: string }[] = [];
-                const globalValues: { name: string; value: string }[] = [];
-
-                for (const param of func.parameters) {
-                    paramValues.push({
-                        name: param.name,
-                        value: this.getSafeValue(param.type)
-                    });
-                }
-
-                globalValues.push({ name: global.name, value: boundary.literal });
-                for (const otherGlobal of globals) {
-                    if (otherGlobal.name !== global.name) {
-                        globalValues.push({
-                            name: otherGlobal.name,
-                            value: otherGlobal.initialValue || '0'
-                        });
-                    }
-                }
+                const paramValues = func.parameters.map(p => ({
+                    name: p.name,
+                    value: this.getSafeValue(p.type)
+                }));
 
                 cases.push({
                     testName,
                     inputs: paramValues.map(p => `${p.name}=${p.value}`).join(', '),
                     paramValues,
-                    globalValues
+                    globalValues: [
+                        { name: global.name, value: boundary.literal },
+                        ...globals
+                            .filter(g => g.name !== global.name)
+                            .map(g => ({ name: g.name, value: g.initialValue || '0' }))
+                    ]
                 });
             }
         }
@@ -302,145 +293,127 @@ export class TestGenerator {
     private static generateCombinationTestsWithInfo(
         func: FunctionInfo,
         globals: GlobalVariable[]
-    ): {
-        code: string;
-        cases: TestCaseInfo[];
-    } {
+    ): { code: string; cases: TestCaseInfo[] } {
         const className = this.capitalize(func.name) + 'Fixture';
         let code = '// Combination Tests\n\n';
         const cases: TestCaseInfo[] = [];
 
-        // Test 1: All minimums
-        code += `TEST_F(${className}, Combination_AllMinimums) {\n`;
-        for (const global of globals) {
-            const boundaries = getBoundariesForType(global.type);
-            const minBoundary = boundaries.find(b => b.label === 'minimum');
-            if (minBoundary) {
-                code += `    ${global.name} = ${minBoundary.literal};\n`;
-            }
-        }
-        if (func.parameters.length > 0) {
-            code += '\n';
-            for (const param of func.parameters) {
-                const boundaries = getBoundariesForType(param.type);
-                const minBoundary = boundaries.find(b => b.label === 'minimum');
-                if (minBoundary) {
-                    code += `    ${param.type} ${param.name} = ${minBoundary.literal};\n`;
-                }
-            }
-        }
-        code += '\n';
-        code += `    ${func.returnType} result = ${func.name}(`;
-        if (func.parameters.length > 0) {
-            code += func.parameters.map(p => p.name).join(', ');
-        }
-        code += ');\n\n';
-        code += '    // TODO: Provide expected value\n';
-        code += '    FAIL() << "Expected value needed. Got: " << result;\n';
-        code += '}\n\n';
-        cases.push({
-            testName: 'Combination_AllMinimums',
-            inputs: 'All inputs at minimum values',
-            paramValues: [],
-            globalValues: []
-        });
-
-        // Test 2: All maximums
-        code += `TEST_F(${className}, Combination_AllMaximums) {\n`;
-        for (const global of globals) {
-            const boundaries = getBoundariesForType(global.type);
-            const maxBoundary = boundaries.find(b => b.label === 'maximum');
-            if (maxBoundary) {
-                code += `    ${global.name} = ${maxBoundary.literal};\n`;
-            }
-        }
-        if (func.parameters.length > 0) {
-            code += '\n';
-            for (const param of func.parameters) {
-                const boundaries = getBoundariesForType(param.type);
-                const maxBoundary = boundaries.find(b => b.label === 'maximum');
-                if (maxBoundary) {
-                    code += `    ${param.type} ${param.name} = ${maxBoundary.literal};\n`;
-                }
-            }
-        }
-        code += '\n';
-        code += `    ${func.returnType} result = ${func.name}(`;
-        if (func.parameters.length > 0) {
-            code += func.parameters.map(p => p.name).join(', ');
-        }
-        code += ');\n\n';
-        code += '    // TODO: Provide expected value\n';
-        code += '    FAIL() << "Expected value needed. Got: " << result;\n';
-        code += '}\n\n';
-        cases.push({
-            testName: 'Combination_AllMaximums',
-            inputs: 'All inputs at maximum values',
-            paramValues: [],
-            globalValues: []
-        });
-
-        // Test 3: Mixed
-        if (func.parameters.length > 0 && globals.length > 0) {
-            code += `TEST_F(${className}, Combination_ParamMin_GlobalMax) {\n`;
+        const buildCombo = (
+            comboLabel: string,
+            globalBoundaryLabel: string,
+            paramBoundaryLabel: string
+        ) => {
+            code += `TEST_F(${className}, ${comboLabel}) {\n`;
             for (const global of globals) {
                 const boundaries = getBoundariesForType(global.type);
-                const maxBoundary = boundaries.find(b => b.label === 'maximum');
-                if (maxBoundary) {
-                    code += `    ${global.name} = ${maxBoundary.literal};\n`;
-                }
+                const bv = boundaries.find(b => b.label === globalBoundaryLabel);
+                if (bv) { code += `    ${global.name} = ${bv.literal};\n`; }
             }
-            code += '\n';
-            for (const param of func.parameters) {
-                const boundaries = getBoundariesForType(param.type);
-                const minBoundary = boundaries.find(b => b.label === 'minimum');
-                if (minBoundary) {
-                    code += `    ${param.type} ${param.name} = ${minBoundary.literal};\n`;
+            if (func.parameters.length > 0) {
+                code += '\n';
+                for (const param of func.parameters) {
+                    if (isPointerType(param.type) || isArrayType(param.type) || isStructType(param.type)) {
+                        code += this.buildSafeParamDeclaration(param);
+                    } else {
+                        const boundaries = getBoundariesForType(param.type);
+                        const bv = boundaries.find(b => b.label === paramBoundaryLabel);
+                        if (bv) {
+                            code += `    ${param.type} ${param.name} = ${bv.literal};\n`;
+                        } else {
+                            code += this.buildSafeParamDeclaration(param);
+                        }
+                    }
                 }
             }
             code += '\n';
             code += `    ${func.returnType} result = ${func.name}(`;
-            code += func.parameters.map(p => p.name).join(', ');
+            if (func.parameters.length > 0) {
+                code += func.parameters.map(p => p.name).join(', ');
+            }
             code += ');\n\n';
             code += '    // TODO: Provide expected value\n';
-            code += '    FAIL() << "Expected value needed. Got: " << result;\n';
+            code += `    FAIL() << "Expected value needed. Got: " << result;\n`;
             code += '}\n\n';
-            cases.push({
-                testName: 'Combination_ParamMin_GlobalMax',
-                inputs: 'Parameters at min, globals at max',
-                paramValues: [],
-                globalValues: []
-            });
-        }
+            cases.push({ testName: comboLabel, inputs: `Globals=${globalBoundaryLabel}, Params=${paramBoundaryLabel}`, paramValues: [], globalValues: [] });
+        };
+
+        buildCombo('Combination_AllMinimums',         'minimum', 'minimum');
+        buildCombo('Combination_AllMaximums',         'maximum', 'maximum');
+        buildCombo('Combination_ParamMin_GlobalMax',  'maximum', 'minimum');
+        buildCombo('Combination_ParamMax_GlobalMin',  'minimum', 'maximum');
 
         return { code, cases };
     }
 
+    // -----------------------------------------------------------------------
+    // Private helper methods
+    // -----------------------------------------------------------------------
+
     /**
-     * @deprecated Use generateTestsWithCaseInfo instead
+     * Build a C++ variable declaration (and optional preamble) for a parameter
+     * in a given boundary set.
      */
-    static generateTestsForFunction(
-        func: FunctionInfo,
-        sourceFileName: string,
-        usedGlobals: GlobalVariable[]
+    private static buildParamDeclaration(
+        param: { name: string; type: string },
+        set: { values: string[]; paramPreambles?: (string | null)[]; paramDeclarations?: (string | null)[] },
+        index: number
     ): string {
-        const result = this.generateTestsWithCaseInfo(func, sourceFileName, usedGlobals);
-        return result.testCode;
+        let result = '';
+
+        const preamble = set.paramPreambles?.[index];
+        if (preamble) {
+            result += `    ${preamble};\n`;
+        }
+
+        const declaration = set.paramDeclarations?.[index];
+        if (declaration !== undefined && declaration !== null) {
+            result += `    ${declaration};\n`;
+        } else {
+            const value = set.values[index] ?? '0';
+            result += `    ${param.type} ${param.name} = ${value};\n`;
+        }
+
+        return result;
     }
 
-    // ========================================================================
-    // Private helper methods (shared by all generation paths)
-    // ========================================================================
+    /**
+     * Build a "safe" declaration for a parameter (used in global boundary tests).
+     */
+    private static buildSafeParamDeclaration(param: { name: string; type: string }): string {
+        if (isPointerType(param.type)) {
+            return `    ${param.type} ${param.name} = NULL;\n`;
+        }
+        if (isArrayType(param.type)) {
+            const base = param.type.replace(/\s*\[.*?\]\s*$/, '').trim();
+            return `    ${base} ${param.name}[10] = {0};\n`;
+        }
+        if (isStructType(param.type)) {
+            return `    ${param.type} ${param.name} = {0};\n`;
+        }
+        return `    ${param.type} ${param.name} = ${this.getSafeValue(param.type)};\n`;
+    }
+
+    /**
+     * Return the correct Google Test assertion macro for a return type.
+     */
+    private static getAssertMacro(returnType: string): string {
+        const rt = returnType.trim().toLowerCase();
+        if (rt === 'float')  { return 'EXPECT_FLOAT_EQ'; }
+        if (rt === 'double') { return 'EXPECT_DOUBLE_EQ'; }
+        return 'EXPECT_EQ';
+    }
 
     private static generateHeader(sourceFileName: string): string {
         return `// ============================================================================
 // Generated Tests for ${sourceFileName}
-// AUTO-GENERATED by C Test Generator
+// AUTO-GENERATED by C Test Generator v2.0.0
 // ============================================================================
 
 #include <gtest/gtest.h>
 #include <climits>
 #include <cfloat>
+#include <cstddef>
+#include <limits>
 
 extern "C" {
     #include "${sourceFileName}"
@@ -449,41 +422,34 @@ extern "C" {
 `;
     }
 
-    private static generateFixtureClass(
-        funcName: string,
-        globals: GlobalVariable[]
-    ): string {
-        
+    private static generateFixtureClass(funcName: string, globals: GlobalVariable[]): string {
         const className = this.capitalize(funcName) + 'Fixture';
 
         let code = `// ============================================================================\n`;
         code += `// Test Fixture for ${funcName}() (uses global variables)\n`;
         code += `// ============================================================================\n\n`;
-        
+
         code += `class ${className} : public ::testing::Test {\n`;
         code += `protected:\n`;
         code += `    // Saved global values\n`;
-        
+
         for (const g of globals) {
             code += `    ${g.type} saved_${g.name};\n`;
         }
-        
+
         code += `\n`;
         code += `    void SetUp() override {\n`;
         code += `        // Save original global values\n`;
-        
         for (const g of globals) {
             code += `        saved_${g.name} = ${g.name};\n`;
         }
-        
         code += `    }\n\n`;
+
         code += `    void TearDown() override {\n`;
         code += `        // Restore original global values\n`;
-        
         for (const g of globals) {
             code += `        ${g.name} = saved_${g.name};\n`;
         }
-        
         code += `    }\n`;
         code += `};\n\n`;
 
@@ -492,7 +458,10 @@ extern "C" {
 
     private static getSafeValue(type: string): string {
         const cleanType = type.trim().replace(/\s+/g, ' ');
-        if (cleanType.includes('unsigned')) return '10';
+        if (cleanType.includes('unsigned'))  { return '10'; }
+        if (cleanType.includes('*'))         { return 'NULL'; }
+        if (cleanType.includes('['))         { return '/* array */'; }
+        if (cleanType.startsWith('struct ')) { return '{0}'; }
         switch (cleanType) {
             case 'int':
             case 'long':
@@ -504,6 +473,8 @@ extern "C" {
                 return '1.0';
             case 'char':
                 return "'a'";
+            case 'size_t':
+                return '10';
             default:
                 return '1';
         }
@@ -511,23 +482,10 @@ extern "C" {
 
     private static getDefaultValue(type: string): string {
         const cleanType = type.trim().replace(/\s+/g, ' ');
-        switch (cleanType) {
-            case 'int':
-            case 'long':
-            case 'short':
-            case 'unsigned int':
-            case 'unsigned long':
-            case 'unsigned short':
-                return '0';
-            case 'float':
-                return '0.0f';
-            case 'double':
-                return '0.0';
-            case 'char':
-                return "'\\0'";
-            default:
-                return '0';
-        }
+        if (cleanType.includes('float'))  { return '0.0f'; }
+        if (cleanType.includes('double')) { return '0.0'; }
+        if (cleanType.includes('char'))   { return "'\\0'"; }
+        return '0';
     }
 
     private static sanitizeLabel(label: string): string {
