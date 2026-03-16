@@ -299,6 +299,12 @@ function sanitizeBoundaryLabel(label: string): string {
         .replace(/array-typical/g,             'ArrayTypical')
         .replace(/struct-zero-init/g,          'StructZero')
         .replace(/struct-extreme-values/g,  'StructExtreme')
+        .replace(/null-pointer/g,           'NullPointer')
+        .replace(/pointer-to-zero/g,        'PointerToZero')
+        .replace(/pointer-to-min/g,         'PointerToMin')
+        .replace(/pointer-to-max/g,         'PointerToMax')
+        .replace(/pointer-to-typical/g,     'PointerToTypical')
+        .replace(/valid-pointer/g,          'ValidPointer')
         .replace(/minimum/g,  'Min')
         .replace(/maximum/g,  'Max')
         .replace(/typical/g,  'Typical')
@@ -334,9 +340,9 @@ interface ComplexEntry {
 
 function pointerEntriesForParam(param: FunctionParameter): ComplexEntry[] {
     const base = pointerBaseType(param.type);
-    const defaultVal = getNominalValue(base) || getSafeDefaultForType(base);
+    const boundaries = getBoundaryValues(base);
 
-    return [
+    const entries: ComplexEntry[] = [
         {
             label: 'null-pointer',
             value: 'NULL',
@@ -344,14 +350,42 @@ function pointerEntriesForParam(param: FunctionParameter): ComplexEntry[] {
             preamble: null,
             headers: ['cstddef'],
         },
-        {
+    ];
+
+    // Pick a representative subset of boundary values for the pointed-to data
+    const picks: { label: string; boundaryLabel: string }[] = [
+        { label: 'pointer-to-zero',    boundaryLabel: 'zero' },
+        { label: 'pointer-to-min',     boundaryLabel: 'minimum' },
+        { label: 'pointer-to-max',     boundaryLabel: 'maximum' },
+        { label: 'pointer-to-typical', boundaryLabel: 'typical' },
+    ];
+
+    for (const pick of picks) {
+        const bv = boundaries.find(b => b.label === pick.boundaryLabel);
+        if (bv) {
+            entries.push({
+                label: pick.label,
+                value: `&${param.name}_val`,
+                declaration: `${param.type} ${param.name} = &${param.name}_val`,
+                preamble: `${base} ${param.name}_val = ${bv.literal}`,
+                headers: bv.requiresHeader ? [bv.requiresHeader] : [],
+            });
+        }
+    }
+
+    // Fallback: if no boundary values matched (unsupported base type), add one valid-pointer
+    if (entries.length === 1) {
+        const defaultVal = getSafeDefaultForType(base);
+        entries.push({
             label: 'valid-pointer',
             value: `&${param.name}_val`,
             declaration: `${param.type} ${param.name} = &${param.name}_val`,
             preamble: `${base} ${param.name}_val = ${defaultVal}`,
             headers: [],
-        },
-    ];
+        });
+    }
+
+    return entries;
 }
 
 /**

@@ -84,12 +84,9 @@ export class TestGenerator {
             code += `TEST(${func.name}Test, ${testName}) {\n`;
 
             if (func.parameters.length === 0) {
-                code += '    // Act\n';
-                code += `    ${func.returnType} result = ${func.name}();\n`;
+                code += this.emitAct(func, []);
                 code += '\n';
-                code += '    // Assert\n';
-                code += '    // TODO: Provide expected value\n';
-                code += `    FAIL() << "Expected value needed. Got: " << result;\n`;
+                code += this.emitAssert(func);
             } else {
                 code += '    // Arrange\n';
                 for (let i = 0; i < func.parameters.length; i++) {
@@ -100,22 +97,9 @@ export class TestGenerator {
                     code += `\n    GTEST_SKIP() << "${set.skipReason}";\n`;
                 } else {
                     code += '\n';
-                    code += '    // Act\n';
-                    code += `    ${func.returnType} result = ${func.name}(`;
-                    code += func.parameters.map(p => p.name).join(', ');
-                    code += ');\n';
-
+                    code += this.emitAct(func, func.parameters.map(p => p.name));
                     code += '\n';
-                    code += '    // Assert\n';
-                    if (set.testNote) {
-                        code += `    // NOTE: ${set.testNote}\n`;
-                    }
-                    if (set.noAssertion) {
-                        code += `    (void)result; // No assertion — see note above\n`;
-                    } else {
-                        code += '    // TODO: Provide expected value\n';
-                        code += `    FAIL() << "Expected value needed. Got: " << result;\n`;
-                    }
+                    code += this.emitAssert(func, set);
                 }
             }
 
@@ -188,12 +172,9 @@ export class TestGenerator {
             code += '\n';
 
             if (func.parameters.length === 0) {
-                code += '    // Act\n';
-                code += `    ${func.returnType} result = ${func.name}();\n`;
+                code += this.emitAct(func, []);
                 code += '\n';
-                code += '    // Assert\n';
-                code += '    // TODO: Provide expected value\n';
-                code += `    FAIL() << "Expected value needed. Got: " << result;\n`;
+                code += this.emitAssert(func);
             } else if (set.skipReason) {
                 code += '    // Arrange\n';
                 for (let i = 0; i < func.parameters.length; i++) {
@@ -206,21 +187,9 @@ export class TestGenerator {
                     code += this.buildParamDeclaration(func.parameters[i], set, i);
                 }
                 code += '\n';
-                code += '    // Act\n';
-                code += `    ${func.returnType} result = ${func.name}(`;
-                code += func.parameters.map(p => p.name).join(', ');
-                code += ');\n';
+                code += this.emitAct(func, func.parameters.map(p => p.name));
                 code += '\n';
-                code += '    // Assert\n';
-                if (set.testNote) {
-                    code += `    // NOTE: ${set.testNote}\n`;
-                }
-                if (set.noAssertion) {
-                    code += `    (void)result; // No assertion — see note above\n`;
-                } else {
-                    code += '    // TODO: Provide expected value\n';
-                    code += `    FAIL() << "Expected value needed. Got: " << result;\n`;
-                }
+                code += this.emitAssert(func, set);
             }
             code += '}\n\n';
 
@@ -282,17 +251,9 @@ export class TestGenerator {
                 }
 
                 code += '\n';
-                code += '    // Act\n';
-                code += `    ${func.returnType} result = ${func.name}(`;
-                if (func.parameters.length > 0) {
-                    code += func.parameters.map(p => p.name).join(', ');
-                }
-                code += ');\n';
-
+                code += this.emitAct(func, func.parameters.length > 0 ? func.parameters.map(p => p.name) : []);
                 code += '\n';
-                code += '    // Assert\n';
-                code += '    // TODO: Provide expected value\n';
-                code += `    FAIL() << "Expected value needed. Got: " << result;\n`;
+                code += this.emitAssert(func);
                 code += '}\n\n';
 
                 const paramValues = func.parameters.map(p => ({
@@ -371,13 +332,9 @@ export class TestGenerator {
                 }
             }
             code += '\n';
-            code += `    ${func.returnType} result = ${func.name}(`;
-            if (func.parameters.length > 0) {
-                code += func.parameters.map(p => p.name).join(', ');
-            }
-            code += ');\n\n';
-            code += '    // TODO: Provide expected value\n';
-            code += `    FAIL() << "Expected value needed. Got: " << result;\n`;
+            code += this.emitAct(func, func.parameters.length > 0 ? func.parameters.map(p => p.name) : []);
+            code += '\n';
+            code += this.emitAssert(func);
             code += '}\n\n';
             cases.push({ testName: comboLabel, inputs: `Globals=${globalBoundaryLabel}, Params=${paramBoundaryLabel}`, paramValues: [], globalValues: [] });
         };
@@ -539,5 +496,54 @@ extern "C" {
 
     private static capitalize(str: string): string {
         return str.charAt(0).toUpperCase() + str.slice(1);
+    }
+
+    /**
+     * Check if a return type is void (no value to capture).
+     */
+    private static isVoidReturn(returnType: string): boolean {
+        return returnType.trim().toLowerCase() === 'void';
+    }
+
+    /**
+     * Emit the Act section — calls the function, capturing result only for non-void.
+     */
+    private static emitAct(
+        func: FunctionInfo,
+        paramNames: string[]
+    ): string {
+        let code = '    // Act\n';
+        const args = paramNames.join(', ');
+        if (this.isVoidReturn(func.returnType)) {
+            code += `    ${func.name}(${args});\n`;
+        } else {
+            code += `    ${func.returnType} result = ${func.name}(${args});\n`;
+        }
+        return code;
+    }
+
+    /**
+     * Emit the Assert section, adapting to void vs. non-void return types.
+     * For void functions: emits a TODO comment about asserting side effects.
+     * For non-void functions: emits FAIL() with the result value.
+     */
+    private static emitAssert(
+        func: FunctionInfo,
+        set?: { testNote?: string; noAssertion?: boolean }
+    ): string {
+        let code = '    // Assert\n';
+        if (set?.testNote) {
+            code += `    // NOTE: ${set.testNote}\n`;
+        }
+        if (this.isVoidReturn(func.returnType)) {
+            code += '    // TODO: Assert side effects (e.g., modified pointer targets, globals)\n';
+            code += `    FAIL() << "Expected side-effect assertion needed for ${func.name}()";\n`;
+        } else if (set?.noAssertion) {
+            code += `    (void)result; // No assertion \u2014 see note above\n`;
+        } else {
+            code += '    // TODO: Provide expected value\n';
+            code += `    FAIL() << "Expected value needed. Got: " << result;\n`;
+        }
+        return code;
     }
 }

@@ -961,13 +961,29 @@ export class ExpectedValuesWebview {
                 }
 
                 const resultType = returnType.trim() || 'int';
+                const isVoid = resultType.toLowerCase() === 'void';
                 const paramCallArgs = params.map(p => p.name).join(', ');
                 customTestsCode += '\n    // Act\n';
-                customTestsCode += `    ${resultType} result = ${functionName}(${paramCallArgs});\n`;
+                if (isVoid) {
+                    customTestsCode += `    ${functionName}(${paramCallArgs});\n`;
+                } else {
+                    customTestsCode += `    ${resultType} result = ${functionName}(${paramCallArgs});\n`;
+                }
                 customTestsCode += '\n    // Assert\n';
                 
                 const expectedValue = test.expected || '0';
-                customTestsCode += `    EXPECT_EQ(result, ${expectedValue});\n`;
+                if (isVoid) {
+                    // Find the first pointer parameter — its _val variable holds the side effect
+                    const ptrParam = params.find(p => isPointerType(p.type));
+                    if (ptrParam) {
+                        customTestsCode += `    EXPECT_EQ(${ptrParam.name}_val, ${expectedValue});\n`;
+                    } else {
+                        customTestsCode += `    // TODO: Assert side effects (e.g., globals)\n`;
+                        customTestsCode += `    FAIL() << "Expected side-effect assertion needed for ${functionName}()";\n`;
+                    }
+                } else {
+                    customTestsCode += `    EXPECT_EQ(result, ${expectedValue});\n`;
+                }
                 customTestsCode += '}\n\n';
             }
 
@@ -998,8 +1014,9 @@ export class ExpectedValuesWebview {
                 : `{${value.split(',').map(v => v.trim()).join(', ')}}`;
             return `${baseType} ${name}[] = ${braceValue}`;
         } else if (isPointerType(type)) {
-            // e.g. "int*" → int* ptr = value;
-            return `${type} ${name} = ${value}`;
+            // e.g. "int *" → int data_val = 5; int * data = &data_val;
+            const baseType = type.replace(/\s*\*+\s*$/, '').trim();
+            return `${baseType} ${name}_val = ${value};\n    ${type} ${name} = &${name}_val`;
         } else if (isStructType(type)) {
             // e.g. "struct Point" → struct Point p = value;
             return `${type} ${name} = ${value}`;
