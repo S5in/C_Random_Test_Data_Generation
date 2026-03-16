@@ -79,6 +79,13 @@ export interface BoundarySet {
      * Using for documenting tests that exercise undefined behavior.
      */
     noAssertion?: boolean;
+
+    /**
+     * When set, the test body emits GTEST_SKIP() with this message instead of
+     * calling the function.  The Arrange section is still emitted so the reader
+     * can see the inputs that would trigger the UB.
+     */
+    skipReason?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -285,6 +292,7 @@ function sanitizeBoundaryLabel(label: string): string {
         .replace(/array-typical-ascending/g,   'ArrayAscending')
         .replace(/array-typical-negative/g,    'ArrayNegative')
         .replace(/array-typical-mixed/g,       'ArrayMixed')
+        .replace(/array-size-exceeds-length/g, 'ArraySizeExceeds')
         .replace(/array-negative-size/g,       'ArrayNegSize')
         .replace(/array-overflow-risk/g,       'ArrayOverflowRisk')
         .replace(/array-single-element/g,      'ArraySingle')
@@ -502,6 +510,15 @@ function arrayEntriesForParam(param: FunctionParameter): ComplexEntry[] {
             preamble: null,
             headers: [],
             pairedSizeValue: '-1',
+        });
+        // size > array length — buffer over-read (UB, documents missing bounds check)
+        entries.push({
+            label: 'array-size-exceeds-length',
+            value: '{1, 2}',
+            declaration: `${base} ${param.name}[2] = {1, 2}`,
+            preamble: null,
+            headers: [],
+            pairedSizeValue: '5',
         });
     } else if (isFloat) {
         entries.push({
@@ -803,6 +820,12 @@ export function generateBoundarySets(
                     requiredHeaders: Array.from(headers),
                     paramPreambles: preambles,
                     paramDeclarations: declarations,
+                    ...(entry.label === 'array-overflow-risk' ? {
+                        testNote: 'Summing {INT_MAX, 1} triggers signed integer overflow — undefined behavior in C/C++.',
+                        noAssertion: true,
+                    } : entry.label === 'array-size-exceeds-length' ? {
+                        skipReason: 'Over-read UB — size exceeds array length; function has no bounds checking',
+                    } : {}),
                 });
             }
             continue;

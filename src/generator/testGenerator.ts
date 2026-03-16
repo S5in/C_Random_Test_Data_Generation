@@ -96,22 +96,26 @@ export class TestGenerator {
                     code += this.buildParamDeclaration(func.parameters[i], set, i);
                 }
 
-                code += '\n';
-                code += '    // Act\n';
-                code += `    ${func.returnType} result = ${func.name}(`;
-                code += func.parameters.map(p => p.name).join(', ');
-                code += ');\n';
-
-                code += '\n';
-                code += '    // Assert\n';
-                if (set.testNote) {
-                    code += `    // NOTE: ${set.testNote}\n`;
-                }
-                if (set.noAssertion) {
-                    code += `    (void)result; // No assertion — see note above\n`;
+                if (set.skipReason) {
+                    code += `\n    GTEST_SKIP() << "${set.skipReason}";\n`;
                 } else {
-                    code += '    // TODO: Provide expected value\n';
-                    code += `    FAIL() << "Expected value needed. Got: " << result;\n`;
+                    code += '\n';
+                    code += '    // Act\n';
+                    code += `    ${func.returnType} result = ${func.name}(`;
+                    code += func.parameters.map(p => p.name).join(', ');
+                    code += ');\n';
+
+                    code += '\n';
+                    code += '    // Assert\n';
+                    if (set.testNote) {
+                        code += `    // NOTE: ${set.testNote}\n`;
+                    }
+                    if (set.noAssertion) {
+                        code += `    (void)result; // No assertion — see note above\n`;
+                    } else {
+                        code += '    // TODO: Provide expected value\n';
+                        code += `    FAIL() << "Expected value needed. Got: " << result;\n`;
+                    }
                 }
             }
 
@@ -186,6 +190,16 @@ export class TestGenerator {
             if (func.parameters.length === 0) {
                 code += '    // Act\n';
                 code += `    ${func.returnType} result = ${func.name}();\n`;
+                code += '\n';
+                code += '    // Assert\n';
+                code += '    // TODO: Provide expected value\n';
+                code += `    FAIL() << "Expected value needed. Got: " << result;\n`;
+            } else if (set.skipReason) {
+                code += '    // Arrange\n';
+                for (let i = 0; i < func.parameters.length; i++) {
+                    code += this.buildParamDeclaration(func.parameters[i], set, i);
+                }
+                code += `\n    GTEST_SKIP() << "${set.skipReason}";\n`;
             } else {
                 code += '    // Arrange\n';
                 for (let i = 0; i < func.parameters.length; i++) {
@@ -196,18 +210,17 @@ export class TestGenerator {
                 code += `    ${func.returnType} result = ${func.name}(`;
                 code += func.parameters.map(p => p.name).join(', ');
                 code += ');\n';
-            }
-
-            code += '\n';
-            code += '    // Assert\n';
-            if (set.testNote) {
-                code += `    // NOTE: ${set.testNote}\n`;
-            }
-            if (set.noAssertion) {
-                code += `    (void)result; // No assertion — see note above\n`;
-            } else {
-                code += '    // TODO: Provide expected value\n';
-                code += `    FAIL() << "Expected value needed. Got: " << result;\n`;
+                code += '\n';
+                code += '    // Assert\n';
+                if (set.testNote) {
+                    code += `    // NOTE: ${set.testNote}\n`;
+                }
+                if (set.noAssertion) {
+                    code += `    (void)result; // No assertion — see note above\n`;
+                } else {
+                    code += '    // TODO: Provide expected value\n';
+                    code += `    FAIL() << "Expected value needed. Got: " << result;\n`;
+                }
             }
             code += '}\n\n';
 
