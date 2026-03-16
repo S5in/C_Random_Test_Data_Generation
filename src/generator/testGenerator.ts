@@ -11,7 +11,7 @@
  */
 
 import { FunctionInfo, GlobalVariable } from '../types';
-import { generateBoundarySets, getBoundariesForType, TestDensity, isPointerType, isArrayType, isStructType } from './boundaryValues';
+import { generateBoundarySets, getBoundariesForType, TestDensity, isPointerType, isArrayType, isStructType, detectArraySizePairs, getBoundaryValues } from './boundaryValues';
 
 export interface TestCaseInfo {
     testName: string;
@@ -104,8 +104,15 @@ export class TestGenerator {
 
                 code += '\n';
                 code += '    // Assert\n';
-                code += '    // TODO: Provide expected value\n';
-                code += `    FAIL() << "Expected value needed. Got: " << result;\n`;
+                if (set.testNote) {
+                    code += `    // NOTE: ${set.testNote}\n`;
+                }
+                if (set.noAssertion) {
+                    code += `    (void)result; // No assertion — see note above\n`;
+                } else {
+                    code += '    // TODO: Provide expected value\n';
+                    code += `    FAIL() << "Expected value needed. Got: " << result;\n`;
+                }
             }
 
             code += '}\n\n';
@@ -193,8 +200,15 @@ export class TestGenerator {
 
             code += '\n';
             code += '    // Assert\n';
-            code += '    // TODO: Provide expected value\n';
-            code += `    FAIL() << "Expected value needed. Got: " << result;\n`;
+            if (set.testNote) {
+                code += `    // NOTE: ${set.testNote}\n`;
+            }
+            if (set.noAssertion) {
+                code += `    (void)result; // No assertion — see note above\n`;
+            } else {
+                code += '    // TODO: Provide expected value\n';
+                code += `    FAIL() << "Expected value needed. Got: " << result;\n`;
+            }
             code += '}\n\n';
 
             const paramValues = func.parameters.map((p, i) => ({
@@ -298,6 +312,12 @@ export class TestGenerator {
         let code = '// Combination Tests\n\n';
         const cases: TestCaseInfo[] = [];
 
+        const pairs = detectArraySizePairs(func.parameters);
+        const sizeToArr = new Map<number, number>();
+        for (const [arrIdx, sizeIdx] of pairs) {
+            sizeToArr.set(sizeIdx, arrIdx);
+        }
+
         const buildCombo = (
             comboLabel: string,
             globalBoundaryLabel: string,
@@ -311,8 +331,20 @@ export class TestGenerator {
             }
             if (func.parameters.length > 0) {
                 code += '\n';
-                for (const param of func.parameters) {
-                    if (isPointerType(param.type) || isArrayType(param.type) || isStructType(param.type)) {
+                for (let pIdx = 0; pIdx < func.parameters.length; pIdx++) {
+                    const param = func.parameters[pIdx];
+                    if (sizeToArr.has(pIdx)) {
+                        // Paired size param — use array-aware value
+                        const sizeMap: Record<string, string> = { 'minimum': '0', 'maximum': '3' };
+                        code += `    ${param.type} ${param.name} = ${sizeMap[paramBoundaryLabel] || '3'};\n`;
+                    } else if (pairs.has(pIdx)) {
+                        // Paired array param — ascending content proportional to size
+                        const arrSizeMap: Record<string, number> = { 'minimum': 1, 'maximum': 3 };
+                        const arrSize = arrSizeMap[paramBoundaryLabel] || 3;
+                        const base = param.type.replace(/\s*\[.*?\]\s*$/, '').trim();
+                        const content = Array.from({ length: arrSize }, (_, i) => `${i + 1}`).join(', ');
+                        code += `    ${base} ${param.name}[${arrSize}] = {${content}};\n`;
+                    } else if (isPointerType(param.type) || isArrayType(param.type) || isStructType(param.type)) {
                         code += this.buildSafeParamDeclaration(param);
                     } else {
                         const boundaries = getBoundariesForType(param.type);

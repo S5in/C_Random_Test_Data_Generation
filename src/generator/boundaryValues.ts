@@ -66,6 +66,19 @@ export interface BoundarySet {
      * Index matches the parameter index.  null = use the default.
      */
     paramDeclarations?: (string | null)[];
+
+    /**
+     * Optional note emitted as a comment before the Assert section.
+     * Using for documenting edge cases (e.g., overflow, UB).
+     */
+    testNote?: string;
+
+    /**
+     * When true, no FAIL()/EXPECT assertion is emitted.
+     * The function is called but the result is only stored (no check).
+     * Using for documenting tests that exercise undefined behavior.
+     */
+    noAssertion?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -265,9 +278,18 @@ function sanitizeBoundaryLabel(label: string): string {
         .replace(/near-zero-negative/g,     'NearZeroNeg')
         .replace(/positive-infinity/g,      'PosInf')
         .replace(/negative-infinity/g,      'NegInf')
-        .replace(/array-single-element/g,   'ArraySingle')
-        .replace(/array-typical/g,          'ArrayTypical')
-        .replace(/struct-zero-init/g,       'StructZero')
+        .replace(/array-size-zero/g,           'ArraySizeZero')
+        .replace(/array-single-intmax/g,       'ArrayIntMax')
+        .replace(/array-single-intmin/g,       'ArrayIntMin')
+        .replace(/array-single-positive/g,     'ArraySinglePos')
+        .replace(/array-typical-ascending/g,   'ArrayAscending')
+        .replace(/array-typical-negative/g,    'ArrayNegative')
+        .replace(/array-typical-mixed/g,       'ArrayMixed')
+        .replace(/array-negative-size/g,       'ArrayNegSize')
+        .replace(/array-overflow-risk/g,       'ArrayOverflowRisk')
+        .replace(/array-single-element/g,      'ArraySingle')
+        .replace(/array-typical/g,             'ArrayTypical')
+        .replace(/struct-zero-init/g,          'StructZero')
         .replace(/struct-extreme-values/g,  'StructExtreme')
         .replace(/minimum/g,  'Min')
         .replace(/maximum/g,  'Max')
@@ -298,6 +320,8 @@ interface ComplexEntry {
     declaration: string;
     preamble: string | null;
     headers: string[];
+    /** For array entries: the correlated size parameter value */
+    pairedSizeValue?: string;
 }
 
 function pointerEntriesForParam(param: FunctionParameter): ComplexEntry[] {
@@ -322,27 +346,202 @@ function pointerEntriesForParam(param: FunctionParameter): ComplexEntry[] {
     ];
 }
 
-function arrayEntriesForParam(param: FunctionParameter): ComplexEntry[] {
-    const { base, size } = arrayBaseType(param.type);
-    const zero = getNominalValue(base) || '0';
-    const typicalSize = size || '10';
+/**
+ * Returns max-value array content for a given base type, for use in AllMax combos.
+ */
+function makeMaxArrayContent(base: string): { content: string; headers: string[] } {
+    const n = normalizeType(base);
+    if (n === 'int' || n === 'long' || n === 'short' || n === 'signed int') {
+        return { content: 'INT_MAX', headers: ['climits'] };
+    }
+    if (n === 'unsigned int' || n === 'unsigned') {
+        return { content: 'UINT_MAX', headers: ['climits'] };
+    }
+    if (n === 'unsigned long') { return { content: 'ULONG_MAX', headers: ['climits'] }; }
+    if (n === 'unsigned short') { return { content: 'USHRT_MAX', headers: ['climits'] }; }
+    if (n.includes('float'))  { return { content: 'FLT_MAX',  headers: ['cfloat'] }; }
+    if (n.includes('double')) { return { content: 'DBL_MAX',  headers: ['cfloat'] }; }
+    return { content: makeAscendingArrayContent(3, base), headers: [] };
+}
 
-    return [
-        {
-            label: 'array-single-element',
-            value: `{${zero}}`,
-            declaration: `${base} ${param.name}[1] = {${zero}}`,
+/**
+ * Compute the (content, size, headers) for a paired-array parameter in a combo test.
+ */
+function makeComboArrayInfo(
+    base: string,
+    boundary: string
+): { content: string; size: number; headers: string[] } {
+    if (boundary === 'maximum') {
+        const max = makeMaxArrayContent(base);
+        return { content: max.content, size: 1, headers: max.headers };
+    }
+    if (boundary === 'minimum') {
+        return { content: '1', size: 1, headers: [] };
+    }
+    // typical / fallback
+    return { content: makeAscendingArrayContent(3, base), size: 3, headers: [] };
+}
+
+/**
+ * Create a canonical key for a BoundarySet used to detect duplicates.
+ */
+function getBoundarySetKey(set: BoundarySet): string {
+    const parts: string[] = [];
+    const n = set.values.length;
+    for (let i = 0; i < n; i++) {
+        const decl = set.paramDeclarations?.[i];
+        parts.push((decl !== undefined && decl !== null) ? decl : set.values[i]);
+    }
+    return parts.join('||');
+}
+
+/**
+ * Generate an ascending array initializer content string, e.g. "1, 2, 3" for size=3.
+ */
+function makeAscendingArrayContent(size: number, base: string): string {
+    if (size <= 0) { return '1'; }
+    const normalized = normalizeType(base);
+    const isFloat = normalized.includes('float') || normalized.includes('double');
+    return Array.from({ length: size }, (_, i) => isFloat ? `${i + 1}.0` : `${i + 1}`).join(', ');
+}
+
+function arrayEntriesForParam(param: FunctionParameter): ComplexEntry[] {
+    const { base } = arrayBaseType(param.type);
+    const normalized = normalizeType(base);
+    const isUnsigned = normalized.includes('unsigned');
+    const isFloat    = normalized.includes('float') || normalized.includes('double');
+    const isChar     = normalized.includes('char');
+    const isSigned   = !isUnsigned && !isFloat && !isChar;
+    const needsLimits = isSigned;
+
+    const entries: ComplexEntry[] = [];
+
+    // size=0 — loop never executes, result always 0 regardless of content
+    entries.push({
+        label: 'array-size-zero',
+        value: isFloat ? '{1.0}' : isChar ? "{'A'}" : '{1}',
+        declaration: isFloat ? `${base} ${param.name}[1] = {1.0}`
+                   : isChar  ? `${base} ${param.name}[1] = {'A'}`
+                   :           `${base} ${param.name}[1] = {1}`,
+        preamble: null,
+        headers: [],
+        pairedSizeValue: '0',
+    });
+
+    // size=1, single positive element
+    const singlePos = isFloat ? '1.0' : isChar ? "'A'" : '1';
+    entries.push({
+        label: 'array-single-positive',
+        value: `{${singlePos}}`,
+        declaration: `${base} ${param.name}[1] = {${singlePos}}`,
+        preamble: null,
+        headers: [],
+        pairedSizeValue: '1',
+    });
+
+    if (needsLimits) {
+        // size=1, INT_MAX element
+        entries.push({
+            label: 'array-single-intmax',
+            value: '{INT_MAX}',
+            declaration: `${base} ${param.name}[1] = {INT_MAX}`,
+            preamble: null,
+            headers: ['climits'],
+            pairedSizeValue: '1',
+        });
+        // size=1, INT_MIN element
+        entries.push({
+            label: 'array-single-intmin',
+            value: '{INT_MIN}',
+            declaration: `${base} ${param.name}[1] = {INT_MIN}`,
+            preamble: null,
+            headers: ['climits'],
+            pairedSizeValue: '1',
+        });
+        // overflow risk: INT_MAX + 1 triggers signed integer overflow
+        entries.push({
+            label: 'array-overflow-risk',
+            value: '{INT_MAX, 1}',
+            declaration: `${base} ${param.name}[2] = {INT_MAX, 1}`,
+            preamble: null,
+            headers: ['climits'],
+            pairedSizeValue: '2',
+        });
+        // size=3, ascending positive {1,2,3}
+        entries.push({
+            label: 'array-typical-ascending',
+            value: '{1, 2, 3}',
+            declaration: `${base} ${param.name}[3] = {1, 2, 3}`,
             preamble: null,
             headers: [],
-        },
-        {
-            label: 'array-typical',
-            value: '{0}',
-            declaration: `${base} ${param.name}[${typicalSize}] = {0}`,
+            pairedSizeValue: '3',
+        });
+        // size=3, all negative {-1,-2,-3}
+        entries.push({
+            label: 'array-typical-negative',
+            value: '{-1, -2, -3}',
+            declaration: `${base} ${param.name}[3] = {-1, -2, -3}`,
             preamble: null,
             headers: [],
-        },
-    ];
+            pairedSizeValue: '3',
+        });
+        // size=4, mixed {-1,1,-1,1}
+        entries.push({
+            label: 'array-typical-mixed',
+            value: '{-1, 1, -1, 1}',
+            declaration: `${base} ${param.name}[4] = {-1, 1, -1, 1}`,
+            preamble: null,
+            headers: [],
+            pairedSizeValue: '4',
+        });
+        // negative size — loop should not execute
+        entries.push({
+            label: 'array-negative-size',
+            value: '{1}',
+            declaration: `${base} ${param.name}[1] = {1}`,
+            preamble: null,
+            headers: [],
+            pairedSizeValue: '-1',
+        });
+    } else if (isFloat) {
+        entries.push({
+            label: 'array-typical-ascending',
+            value: '{1.0, 2.0, 3.0}',
+            declaration: `${base} ${param.name}[3] = {1.0, 2.0, 3.0}`,
+            preamble: null,
+            headers: [],
+            pairedSizeValue: '3',
+        });
+        entries.push({
+            label: 'array-typical-negative',
+            value: '{-1.0, -2.0, -3.0}',
+            declaration: `${base} ${param.name}[3] = {-1.0, -2.0, -3.0}`,
+            preamble: null,
+            headers: [],
+            pairedSizeValue: '3',
+        });
+    } else if (isChar) {
+        entries.push({
+            label: 'array-typical-ascending',
+            value: "{'A', 'B', 'C'}",
+            declaration: `${base} ${param.name}[3] = {'A', 'B', 'C'}`,
+            preamble: null,
+            headers: [],
+            pairedSizeValue: '3',
+        });
+    } else {
+        // unsigned int — no negatives
+        entries.push({
+            label: 'array-typical-ascending',
+            value: '{1, 2, 3}',
+            declaration: `${base} ${param.name}[3] = {1, 2, 3}`,
+            preamble: null,
+            headers: [],
+            pairedSizeValue: '3',
+        });
+    }
+
+    return entries;
 }
 
 function structEntriesForParam(param: FunctionParameter): ComplexEntry[] {
@@ -411,6 +610,61 @@ function getNominalEntry(p: FunctionParameter): NominalEntry {
 }
 
 // ---------------------------------------------------------------------------
+// Array-size parameter pair detection
+// ---------------------------------------------------------------------------
+
+const SIZE_PARAM_NAMES = new Set([
+    'size', 'len', 'length', 'n', 'count', 'num', 'sz',
+    'nelem', 'nelems', 'num_elements', 'array_size', 'num_items',
+]);
+
+/**
+ * Detect pairs of (array parameter, size parameter).
+ * Returns a Map from array param index → size param index.
+ */
+export function detectArraySizePairs(params: FunctionParameter[]): Map<number, number> {
+    const pairs = new Map<number, number>();
+    const usedSizeIndices = new Set<number>();
+
+    for (let i = 0; i < params.length; i++) {
+        if (!isArrayType(params[i].type)) { continue; }
+
+        for (let j = 0; j < params.length; j++) {
+            if (i === j || usedSizeIndices.has(j)) { continue; }
+            const name = params[j].name.toLowerCase();
+            if (SIZE_PARAM_NAMES.has(name) &&
+                !isArrayType(params[j].type) &&
+                !isPointerType(params[j].type) &&
+                !isStructType(params[j].type)) {
+                pairs.set(i, j);
+                usedSizeIndices.add(j);
+                break;
+            }
+        }
+    }
+
+    return pairs;
+}
+
+interface ArraySizeBoundary {
+    label: string;
+    sizeValue: string;
+    arraySize: number;
+    /** C initializer content (without braces), e.g. "1, 2, 3" */
+    arrayContent: string;
+    arrayHeaders?: string[];
+}
+
+function getArraySizeBoundaries(): ArraySizeBoundary[] {
+    return [
+        { label: 'zero-length',    sizeValue: '0',  arraySize: 1, arrayContent: '1' },
+        { label: 'single-element', sizeValue: '1',  arraySize: 1, arrayContent: '42' },
+        { label: 'typical-length', sizeValue: '3',  arraySize: 3, arrayContent: '1, 2, 3' },
+        { label: 'negative',       sizeValue: '-1', arraySize: 1, arrayContent: '1' },
+    ];
+}
+
+// ---------------------------------------------------------------------------
 // Main generation function
 // ---------------------------------------------------------------------------
 
@@ -440,6 +694,13 @@ export function generateBoundarySets(
 
     const sets: BoundarySet[] = [];
     const boundaryClasses = getBoundaryClassesForDensity(density);
+
+    // Detect array-size parameter pairs for correlated test generation
+    const arraySizePairs = detectArraySizePairs(params);
+    const sizeToArrayMap = new Map<number, number>();
+    for (const [arrIdx, sizeIdx] of arraySizePairs) {
+        sizeToArrayMap.set(sizeIdx, arrIdx);
+    }
 
     // ------------------------------------------------------------------
     // 1. BASELINE TEST (all nominal/zero)
@@ -522,6 +783,11 @@ export function generateBoundarySets(
                         preambles.push(entry.preamble);
                         declarations.push(entry.declaration);
                         entry.headers.forEach(h => headers.add(h));
+                    } else if (arraySizePairs.get(paramIndex) === i) {
+                        // Paired size param — use the correlated value from the array entry
+                        values.push(entry.pairedSizeValue ?? '1');
+                        preambles.push(null);
+                        declarations.push(null);
                     } else {
                         const nom = getNominalEntry(params[i]);
                         values.push(nom.value);
@@ -567,6 +833,52 @@ export function generateBoundarySets(
                 sets.push({
                     label: `Param_${param.name}_${sanitizeBoundaryLabel(entry.label)}`,
                     description: `${param.name} = ${entry.label}, others at nominal`,
+                    values,
+                    requiredHeaders: Array.from(headers),
+                    paramPreambles: preambles,
+                    paramDeclarations: declarations,
+                });
+            }
+            continue;
+        }
+
+        // ---- Paired size parameter (array-size correlation) ----
+        if (sizeToArrayMap.has(paramIndex)) {
+            const pairedArrayIdx = sizeToArrayMap.get(paramIndex)!;
+            const arrayParam = params[pairedArrayIdx];
+            const { base } = arrayBaseType(arrayParam.type);
+
+            for (const sizeBoundary of getArraySizeBoundaries()) {
+                const values: string[] = [];
+                const headers = new Set<string>();
+                const preambles: (string | null)[] = [];
+                const declarations: (string | null)[] = [];
+
+                for (let i = 0; i < params.length; i++) {
+                    if (i === paramIndex) {
+                        values.push(sizeBoundary.sizeValue);
+                        preambles.push(null);
+                        declarations.push(null);
+                    } else if (i === pairedArrayIdx) {
+                        const content = sizeBoundary.arrayContent;
+                        values.push(`{${content}}`);
+                        preambles.push(null);
+                        declarations.push(`${base} ${arrayParam.name}[${sizeBoundary.arraySize}] = {${content}}`);
+                        if (sizeBoundary.arrayHeaders) {
+                            sizeBoundary.arrayHeaders.forEach(h => headers.add(h));
+                        }
+                    } else {
+                        const nom = getNominalEntry(params[i]);
+                        values.push(nom.value);
+                        preambles.push(nom.preamble);
+                        declarations.push(nom.declaration);
+                        nom.headers.forEach(h => headers.add(h));
+                    }
+                }
+
+                sets.push({
+                    label: `Param_${param.name}_${sanitizeBoundaryLabel(sizeBoundary.label)}`,
+                    description: `${param.name} = ${sizeBoundary.label}, array sized accordingly`,
                     values,
                     requiredHeaders: Array.from(headers),
                     paramPreambles: preambles,
@@ -632,8 +944,32 @@ export function generateBoundarySets(
         const preambles: (string | null)[] = [];
         const declarations: (string | null)[] = [];
 
-        for (const param of params) {
-            if (isPointerType(param.type) || isArrayType(param.type) || isStructType(param.type)) {
+        // Pre-compute paired-array info for this combo so size and content stay coordinated
+        const comboArrInfo = new Map<number, { content: string; size: number; headers: string[] }>();
+        for (const [arrIdx] of arraySizePairs) {
+            const { base } = arrayBaseType(params[arrIdx].type);
+            comboArrInfo.set(arrIdx, makeComboArrayInfo(base, combo.boundary));
+        }
+
+        for (let pIdx = 0; pIdx < params.length; pIdx++) {
+            const param = params[pIdx];
+
+            if (sizeToArrayMap.has(pIdx)) {
+                // Paired size param — use value from pre-computed arr info
+                const arrIdx = sizeToArrayMap.get(pIdx)!;
+                const info = comboArrInfo.get(arrIdx)!;
+                values.push(`${info.size}`);
+                preambles.push(null);
+                declarations.push(null);
+            } else if (arraySizePairs.has(pIdx)) {
+                // Paired array param — use pre-computed content
+                const info = comboArrInfo.get(pIdx)!;
+                const { base } = arrayBaseType(param.type);
+                values.push(`{${info.content}}`);
+                preambles.push(null);
+                declarations.push(`${base} ${param.name}[${info.size}] = {${info.content}}`);
+                info.headers.forEach(h => headers.add(h));
+            } else if (isPointerType(param.type) || isArrayType(param.type) || isStructType(param.type)) {
                 const nom = getNominalEntry(param);
                 values.push(nom.value);
                 preambles.push(nom.preamble);
@@ -679,8 +1015,22 @@ export function generateBoundarySets(
             const declarations: (string | null)[] = [];
             let primitiveIdx = 0;
 
-            for (const param of params) {
-                if (isPointerType(param.type) || isArrayType(param.type) || isStructType(param.type)) {
+            for (let pIdx = 0; pIdx < params.length; pIdx++) {
+                const param = params[pIdx];
+
+                if (sizeToArrayMap.has(pIdx)) {
+                    // Paired size param — use moderate value
+                    values.push('3');
+                    preambles.push(null);
+                    declarations.push(null);
+                } else if (arraySizePairs.has(pIdx)) {
+                    // Paired array param — meaningful ascending content
+                    const { base } = arrayBaseType(param.type);
+                    const content = makeAscendingArrayContent(3, base);
+                    values.push(`{${content}}`);
+                    preambles.push(null);
+                    declarations.push(`${base} ${param.name}[3] = {${content}}`);
+                } else if (isPointerType(param.type) || isArrayType(param.type) || isStructType(param.type)) {
                     const nom = getNominalEntry(param);
                     values.push(nom.value);
                     preambles.push(nom.preamble);
@@ -713,12 +1063,23 @@ export function generateBoundarySets(
         }
     }
 
-    return sets;
+    return deduplicateSets(sets);
 }
 
 // ---------------------------------------------------------------------------
-// Summary helper
+// Deduplication helper
 // ---------------------------------------------------------------------------
+
+function deduplicateSets(sets: BoundarySet[]): BoundarySet[] {
+    const seen = new Set<string>();
+    return sets.filter(set => {
+        if (set.noAssertion) { return true; } // always keep UB-documentation tests
+        const key = getBoundarySetKey(set);
+        if (seen.has(key)) { return false; }
+        seen.add(key);
+        return true;
+    });
+}
 
 export function getBoundarySummary(
     params: FunctionParameter[],
