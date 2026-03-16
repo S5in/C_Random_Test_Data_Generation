@@ -294,7 +294,7 @@ function sanitizeBoundaryLabel(label: string): string {
         .replace(/array-typical-mixed/g,       'ArrayMixed')
         .replace(/array-size-exceeds-length/g, 'ArraySizeExceeds')
         .replace(/array-negative-size/g,       'ArrayNegSize')
-        .replace(/array-overflow-risk/g,       'ArrayOverflowRisk')
+        .replace(/array-extreme-pair/g,        'ArrayExtremePair')
         .replace(/array-single-element/g,      'ArraySingle')
         .replace(/array-typical/g,             'ArrayTypical')
         .replace(/struct-zero-init/g,          'StructZero')
@@ -466,9 +466,9 @@ function arrayEntriesForParam(param: FunctionParameter): ComplexEntry[] {
             headers: ['climits'],
             pairedSizeValue: '1',
         });
-        // overflow risk: INT_MAX + 1 triggers signed integer overflow
+        // two elements with an extreme value (INT_MAX) — tests how the function handles large values in multi-element arrays
         entries.push({
-            label: 'array-overflow-risk',
+            label: 'array-extreme-pair',
             value: '{INT_MAX, 1}',
             declaration: `${base} ${param.name}[2] = {INT_MAX, 1}`,
             preamble: null,
@@ -820,10 +820,7 @@ export function generateBoundarySets(
                     requiredHeaders: Array.from(headers),
                     paramPreambles: preambles,
                     paramDeclarations: declarations,
-                    ...(entry.label === 'array-overflow-risk' ? {
-                        testNote: 'Summing {INT_MAX, 1} triggers signed integer overflow — undefined behavior in C/C++.',
-                        noAssertion: true,
-                    } : entry.label === 'array-size-exceeds-length' ? {
+                    ...(entry.label === 'array-size-exceeds-length' ? {
                         skipReason: 'Over-read UB — size exceeds array length; function has no bounds checking',
                     } : {}),
                 });
