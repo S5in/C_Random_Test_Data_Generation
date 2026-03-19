@@ -25,8 +25,18 @@ export class CMakeGenerator {
         set(CMAKE_CXX_STANDARD 14)
         set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-        # Disable compiler extensions for portability
+        # Disable GNU C++ extensions for portability
         set(CMAKE_CXX_EXTENSIONS OFF)
+
+        # Set C standard with GNU extensions enabled.
+        # GNU C11 (-std=gnu11) allows re-declaration of a typedef with a compatible
+        # anonymous struct type (identical fields), which is a GCC extension not
+        # present in strict ISO C11.  This is needed when the source file both
+        # includes a header that defines a struct typedef AND also defines the
+        # same struct typedef inline with identical fields.
+        set(CMAKE_C_STANDARD 11)
+        set(CMAKE_C_STANDARD_REQUIRED ON)
+        set(CMAKE_C_EXTENSIONS ON)
 
         # Find Google Test
         find_package(GTest REQUIRED)
