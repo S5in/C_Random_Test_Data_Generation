@@ -34,8 +34,16 @@ export class CMakeGenerator {
         # Include directories
         include_directories(\${GTEST_INCLUDE_DIRS})
 
-        # Add test executable
-        add_executable(${executableName} ${testFileName})
+        # Compile the C source file with the C compiler (not C++) so that
+        # GCC's GNU C mode accepts identical typedef re-declarations that
+        # would be a hard error in C++.
+        set_source_files_properties(${sourceFileName} PROPERTIES LANGUAGE C)
+
+        # Add test executable: C++ test driver + C source file under test
+        add_executable(${executableName}
+            ${testFileName}
+            ${sourceFileName}
+        )
 
         # Link Google Test
         # Try modern CMake targets first, fall back to variables

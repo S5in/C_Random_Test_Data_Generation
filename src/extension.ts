@@ -343,6 +343,30 @@ async function generateTestForCurrentFunction(parser: any): Promise<{
     // ========================================
 
     // ========================================
+    // Step 3.6: Collect struct definitions for the target function's parameters.
+    // These are emitted inline in the test file's extern "C" block so that the
+    // test compiles without needing to #include the entire source file (which
+    // can cause typedef-redefinition errors when the source already includes
+    // a shared header that defines the same types).
+    // ========================================
+    const funcStructDefs: StructInfo[] = [];
+    for (const param of targetFunction.parameters) {
+        const bareName = param.type
+            .replace(/^const\s+/, '')
+            .replace(/^struct\s+/, '')
+            .replace(/\s*[*\[].*/,'')
+            .trim()
+            .toLowerCase();
+        if (!bareName) { continue; }
+        const structInfo = allStructs.find(s => s.name.toLowerCase() === bareName);
+        if (structInfo && !funcStructDefs.some(s => s.name.toLowerCase() === bareName)) {
+            funcStructDefs.push(structInfo);
+        }
+    }
+    buildRunner.log(`Struct defs for ${targetFunction.name}(): ${funcStructDefs.map(s => s.name).join(', ') || 'none'}`);
+    // ========================================
+
+    // ========================================
     // Step 4: Generate Test Code + Case Info
     // ========================================
     const sourceFileName = path.basename(document.fileName);
@@ -355,7 +379,8 @@ async function generateTestForCurrentFunction(parser: any): Promise<{
         targetFunction,
         sourceFileName,
         usedGlobals,
-        density
+        density,
+        funcStructDefs
     );
 
     buildRunner.log(`Generated ${testCases.length} boundary value test case(s)`);
