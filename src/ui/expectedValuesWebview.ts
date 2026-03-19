@@ -7,8 +7,8 @@
 import * as vscode from 'vscode';
 import * as fs from 'fs';
 import { TestCaseInfo } from '../generator/testGenerator';
-import { FunctionParameter } from '../types';
-import { isArrayType, isPointerType, isStructType } from '../generator/boundaryValues';
+import { FunctionParameter, StructInfo } from '../types';
+import { isArrayType, isPointerType, isStructType, getStructBareName } from '../generator/boundaryValues';
 
 interface CustomTest {
     name: string;
@@ -27,7 +27,8 @@ export class ExpectedValuesWebview {
         functionName: string,
         params: FunctionParameter[],
         returnType: string,
-        testCode?: string
+        testCode?: string,
+        structs?: StructInfo[]
     ): Promise<boolean> {
         return new Promise((resolve) => {
             const panel = vscode.window.createWebviewPanel(
@@ -40,7 +41,7 @@ export class ExpectedValuesWebview {
                 }
             );
 
-            panel.webview.html = this.getHtmlContent(testCases, functionName, params, returnType, testCode || '');
+            panel.webview.html = this.getHtmlContent(testCases, functionName, params, returnType, testCode || '', structs ?? []);
 
             let resolved = false;
 
@@ -95,14 +96,16 @@ export class ExpectedValuesWebview {
         functionName: string,
         params: FunctionParameter[],
         returnType: string,
-        testCode: string
+        testCode: string,
+        structs: StructInfo[] = []
     ): string {
         const paramNames = params.map(p => p.name);
         const formattedInputsArr = testCases.map(tc =>
             tc.paramValues.map((pv, i) => {
                 const paramType = params[i]?.type ?? '';
                 if (isStructType(paramType)) {
-                    return `${pv.name} = &lt;struct&gt; ${this.escapeHtml(pv.value)}`;
+                    const structLabel = this.formatStructValue(paramType, pv.value, structs);
+                    return `${pv.name} = ${structLabel}`;
                 }
                 return `${pv.name} = ${this.escapeHtml(pv.value)}`;
             }).join(', ') || 'No parameters'
@@ -146,10 +149,15 @@ export class ExpectedValuesWebview {
             </div>
         `).join('');
 
-        const paramInputs = params.map(p => 
-            `<input type="text" class="custom-param-input" data-param="${p.name}" placeholder="${p.name}" />`
-        ).join('\n                ');
-        const paramInfosJson = JSON.stringify(params.map(p => ({ name: p.name, type: p.type })));
+       const paramInfosJson = JSON.stringify(params.map(p => {
+            let fields: { name: string; type: string }[] | null = null;
+            if (isStructType(p.type)) {
+                const bareName = getStructBareName(p.type);
+                const structInfo = structs.find(s => s.name.toLowerCase() === bareName);
+                if (structInfo) { fields = structInfo.fields; }
+            }
+            return { name: p.name, type: p.type, fields };
+        }));
         // Syntax-highlighted preview of the generated code
         return `<!DOCTYPE html>
 <html lang="en">
@@ -510,8 +518,10 @@ export class ExpectedValuesWebview {
     <!-- Tab 1: Boundary Tests -->
     <div id="boundary-tab" class="tab-content active">
         <p style="color: var(--vscode-descriptionForeground); margin-bottom: 15px;">
-            💡 <strong>Tip:</strong> Enter numbers (e.g., <code>42</code>, <code>-100</code>), 
-            or special keywords: <code>overflow</code>, <code>undefined</code>, <code>skip</code>.
+            💡 <strong>Tip:</strong> The <em>Inputs</em> shown for each test are pre-generated and read-only.
+            Fill in the <strong>Expected return value</strong> of <code>${this.escapeHtml(functionName)}()</code> for that set of inputs
+            (e.g., <code>42</code>, <code>-1.5</code>, <code>0</code>),
+            or use keywords: <code>overflow</code>, <code>undefined</code>, <code>skip</code>.
             Uncheck a test to exclude it from the saved file.
         </p>
         <div style="margin-bottom: 15px; padding: 10px; background: var(--vscode-textCodeBlock-background); border-radius: 4px;">
@@ -535,12 +545,21 @@ export class ExpectedValuesWebview {
     <!-- Tab 2: Custom Tests -->
     <div id="custom-tab" class="tab-content">
         <p style="color: var(--vscode-descriptionForeground); margin-bottom: 15px;">
-            ➕ Add your own test cases with custom input values
+            ➕ Add your own test cases with custom input values. For struct parameters, fill in each field separately.
         </p>
 
         <div class="custom-test-header">
             <div>Test Name</div>
-            ${paramNames.map(p => `<div>${p}</div>`).join('')}
+            ${params.map(p => {
+                if (isStructType(p.type)) {
+                    const bareName = getStructBareName(p.type);
+                    const si = structs.find(s => s.name.toLowerCase() === bareName);
+                    if (si && si.fields.length > 0) {
+                        return si.fields.map(f => `<div>${this.escapeHtml(p.name)}.${this.escapeHtml(f.name)}</div>`).join('');
+                    }
+                }
+                return `<div>${this.escapeHtml(p.name)}</div>`;
+            }).join('')}
             <div>Expected</div>
             <div></div>
         </div>
@@ -670,8 +689,16 @@ export class ExpectedValuesWebview {
             let html = '<input type="text" class="custom-name-input" placeholder="' + defaultName + '" value="' + defaultName + '" />';
             
            paramInfos.forEach(paramInfo => {
-                const placeholder = getParamPlaceholder(paramInfo);
-                html += '<input type="text" class="custom-param-input" data-param="' + paramInfo.name + '" placeholder="' + placeholder + '" />';
+                if (paramInfo.fields && paramInfo.fields.length > 0) {
+                    // Struct: one labeled input per field
+                    paramInfo.fields.forEach(field => {
+                        const ph = paramInfo.name + '.' + field.name + ' (' + field.type + ')';
+                        html += '<input type="text" class="custom-param-input" data-param="' + paramInfo.name + '" data-field="' + field.name + '" placeholder="' + ph + '" />';
+                    });
+                } else {
+                    const placeholder = getParamPlaceholder(paramInfo);
+                    html += '<input type="text" class="custom-param-input" data-param="' + paramInfo.name + '" placeholder="' + placeholder + '" />';
+                }
             });
             
             html += '<input type="text" class="custom-expected-input" placeholder="0" />';
@@ -724,10 +751,22 @@ export class ExpectedValuesWebview {
                 const expected = row.querySelector('.custom-expected-input').value.trim() || '0';
 
                 const params = {};
+                const structAccum = {}; // paramName -> ordered array of field values
                 paramInputs.forEach(input => {
                     const paramName = input.getAttribute('data-param');
-                    params[paramName] = input.value.trim() || '0';
+                    const fieldName = input.getAttribute('data-field');
+                    if (fieldName) {
+                        // Struct field: collect into ordered array
+                        if (!structAccum[paramName]) { structAccum[paramName] = []; }
+                        structAccum[paramName].push(input.value.trim() || '0');
+                    } else {
+                        params[paramName] = input.value.trim() || '0';
+                    }
                 });
+                // Assemble struct field values into aggregate initializer: {x, y}
+                for (const [paramName, fieldVals] of Object.entries(structAccum)) {
+                    params[paramName] = '{' + fieldVals.join(', ') + '}';
+                }
 
                 customTests.push({ name, params, expected });
             });
@@ -1027,8 +1066,12 @@ export class ExpectedValuesWebview {
             const baseType = type.replace(/\s*\*+\s*$/, '').trim();
             return `${baseType} ${name}_val = ${value};\n    ${type} ${name} = &${name}_val`;
         } else if (isStructType(type)) {
-            // e.g. "struct Point" → struct Point p = value;
-            return `${type} ${name} = ${value}`;
+            // Ensure aggregate initializer syntax: {x, y}
+            // We check for a matching opening and closing brace; if the value is
+            // already brace-wrapped (e.g. "{0, 0}") we leave it as-is, otherwise
+            // we wrap it (e.g. "0, 0" → "{0, 0}").
+            const safeValue = /^\s*\{.*\}\s*$/s.test(value) ? value : `{${value}}`;
+            return `${type} ${name} = ${safeValue}`;
         } else {
             // Primitive: int, float, double, char, size_t, etc.
             return `${type} ${name} = ${value}`;
@@ -1067,5 +1110,30 @@ export class ExpectedValuesWebview {
             "'": '&#039;'
         };
         return text.replace(/[&<>"']/g, m => map[m]);
+    }
+    /**
+     * Format a struct value for display, pairing field names with their values.
+     * e.g. type="struct Point", value="{0, 0}", structs=[{name:"Point", fields:[{name:"x",...},{name:"y",...}]}]
+     * produces: "&lt;struct Point&gt; {x: 0, y: 0}"
+     */
+    private static formatStructValue(type: string, value: string, structs: StructInfo[]): string {
+        // Preserve the original casing for display, use shared helper for lookup
+        const normalized = type.trim().replace(/\s+/g, ' ');
+        const bareName = getStructBareName(type); // lowercase bare name for lookup
+        const structInfo = structs.find(s => s.name.toLowerCase() === bareName);
+        const displayType = this.escapeHtml(normalized);
+        // Extract the content inside braces, if present
+        const braceMatch = value.match(/^\{(.*)\}$/s);
+        if (!braceMatch || !structInfo || structInfo.fields.length === 0) {
+            return `&lt;${displayType}&gt; ${this.escapeHtml(value)}`;
+        }
+        // Split the brace content into individual field values
+        const rawContent = braceMatch[1];
+        const fieldValues = rawContent.split(',').map(v => v.trim());
+        const pairs = structInfo.fields.map((field, idx) => {
+            const val = fieldValues[idx] !== undefined ? fieldValues[idx] : '?';
+            return `${this.escapeHtml(field.name)}: ${this.escapeHtml(val)}`;
+        });
+        return `&lt;${displayType}&gt; {${pairs.join(', ')}}`;
     }
 }

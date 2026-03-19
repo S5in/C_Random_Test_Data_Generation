@@ -8,7 +8,28 @@
  *   - exhaustive: all boundary classes including near-zero, infinity, etc.
  */
 
-import { FunctionParameter } from '../types';
+import { FunctionParameter, StructInfo } from '../types';
+// ---------------------------------------------------------------------------
+// Known struct names (for typedef'd struct support)
+// ---------------------------------------------------------------------------
+let knownStructNames: Set<string> = new Set();
+let knownStructInfos: StructInfo[] = [];
+/**
+ * Register typedef'd and named struct names so that isStructType() recognises
+ * them even when the parameter type does not carry the "struct " prefix.
+ *  * Also stores the full StructInfo for field-count-aware initializer generation.
+ */
+export function setKnownStructNames(names: string[]): void {
+    knownStructNames = new Set(names.map(n => n.toLowerCase()));
+}
+/**
+ * Store the full struct definitions so that structEntriesForParam() can produce
+ * field-count-aware initializers even when structs are not threaded through the
+ * call chain explicitly (e.g., from TestGenerator).
+ */
+export function setKnownStructInfos(structs: StructInfo[]): void {
+    knownStructInfos = structs;
+}
 
 // ---------------------------------------------------------------------------
 // Public density type
@@ -217,6 +238,8 @@ const EXHAUSTIVE_CLASSES = [
     'positive-infinity', 'negative-infinity', 'overflow',
 ];
 
+const DEFAULT_STRUCT_FIELD_COUNT = 2;
+
 function getBoundaryClassesForDensity(density: TestDensity): string[] {
     if (density === 'minimal')    { return MINIMAL_CLASSES; }
     if (density === 'exhaustive') { return EXHAUSTIVE_CLASSES; }
@@ -259,7 +282,9 @@ export function isArrayType(type: string): boolean {
 }
 
 export function isStructType(type: string): boolean {
-    return normalizeType(type).startsWith('struct ');
+    const normalized = normalizeType(type);
+    if (normalized.startsWith('struct ')) { return true; }
+    return knownStructNames.has(normalized);
 }
 
 export function isSupportedType(type: string): boolean {
@@ -595,25 +620,49 @@ function arrayEntriesForParam(param: FunctionParameter): ComplexEntry[] {
     return entries;
 }
 
-function structEntriesForParam(param: FunctionParameter): ComplexEntry[] {
+function structEntriesForParam(param: FunctionParameter, structInfo?: StructInfo): ComplexEntry[] {
+    // Default to 2 fields when structInfo is undefined (struct definition not available).
+    // This matches the legacy hardcoded two-field initializer and is a safe fallback.
+    const fieldCount = structInfo?.fields.length ?? DEFAULT_STRUCT_FIELD_COUNT;
+    const zeroInit = Array(fieldCount).fill('0').join(', ');
+    const extremeInit = Array(fieldCount).fill('INT_MAX').join(', ');
     return [
         {
             label: 'struct-zero-init',
-            value: '{0}',
-            declaration: `${param.type} ${param.name} = {0}`,
+            value: `{${zeroInit}}`,
+            declaration: `${param.type} ${param.name} = {${zeroInit}}`,
             preamble: null,
             headers: [],
         },
         {
             label: 'struct-extreme-values',
-            value: '{INT_MAX, INT_MAX}',
-            declaration: `${param.type} ${param.name} = {INT_MAX, INT_MAX}`,
+            value: `{${extremeInit}}`,
+            declaration: `${param.type} ${param.name} = {${extremeInit}}`,
             preamble: null,
             headers: ['climits'],
         },
     ];
 }
-
+/**
+ * Find the StructInfo for a given parameter type from a list of known structs.
+ * Handles both "struct Foo" and typedef'd "Foo" style types.
+ */
+function findStructInfo(type: string, structs: StructInfo[] = []): StructInfo | undefined {
+    const bareName = getStructBareName(type);
+    // Look in the explicitly provided list first, then fall back to the module-level store
+    return (structs.length > 0 ? structs : knownStructInfos).find(
+        s => s.name.toLowerCase() === bareName
+    );
+}
+/**
+ * Return the bare struct name from a type string, lower-cased.
+ * Strips the "struct " prefix if present.
+ * e.g. "struct Point" → "point", "Point" → "point"
+ */
+export function getStructBareName(type: string): string {
+    const normalized = normalizeType(type);
+    return normalized.startsWith('struct ') ? normalized.slice('struct '.length).trim() : normalized;
+}
 // ---------------------------------------------------------------------------
 // Nominal entry helper used inside generateBoundarySets
 // ---------------------------------------------------------------------------
@@ -625,7 +674,7 @@ interface NominalEntry {
     headers: string[];
 }
 
-function getNominalEntry(p: FunctionParameter): NominalEntry {
+function getNominalEntry(p: FunctionParameter, structs: StructInfo[] = []): NominalEntry {
     if (isPointerType(p.type)) {
         return {
             value: 'NULL',
@@ -644,7 +693,7 @@ function getNominalEntry(p: FunctionParameter): NominalEntry {
         };
     }
     if (isStructType(p.type)) {
-        const entry = structEntriesForParam(p)[0];
+        const entry = structEntriesForParam(p, findStructInfo(p.type, structs))[0];
         return {
             value: entry.value,
             declaration: entry.declaration,
@@ -732,7 +781,8 @@ function getArraySizeBoundaries(): ArraySizeBoundary[] {
  */
 export function generateBoundarySets(
     params: FunctionParameter[],
-    density: TestDensity = 'standard'
+    density: TestDensity = 'standard',
+    structs: StructInfo[] = []
 ): BoundarySet[] {
     if (params.length === 0) {
         return [{
@@ -763,7 +813,7 @@ export function generateBoundarySets(
         const paramDeclarations: (string | null)[] = [];
 
         for (const param of params) {
-            const entry = getNominalEntry(param);
+            const entry = getNominalEntry(param, structs);
             values.push(entry.value);
             entry.headers.forEach(h => requiredHeaders.add(h));
             paramPreambles.push(entry.preamble);
@@ -864,7 +914,7 @@ export function generateBoundarySets(
 
         // ---- Struct ----
         if (isStructType(param.type)) {
-            for (const entry of structEntriesForParam(param)) {
+            for (const entry of structEntriesForParam(param, findStructInfo(param.type, structs))) {
                 const values: string[] = [];
                 const headers = new Set<string>();
                 const preambles: (string | null)[] = [];

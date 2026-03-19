@@ -14,11 +14,12 @@ import * as fs from 'fs';
 import { FunctionExtractor } from './parser/functionExtractor';
 import { GlobalExtractor } from './parser/globalExtractor';
 import { GlobalUsageAnalyzer } from './parser/globalUsageAnalyzer';
+import { StructExtractor } from './parser/structExtractor';
 import { TestGenerator, TestCaseInfo } from './generator/testGenerator';
 import { CMakeGenerator } from './generator/cmakeGenerator';
 import { BuildRunner } from './build/buildRunner';
 import { ExpectedValuesWebview } from './ui/expectedValuesWebview';
-import { TestDensity } from './generator/boundaryValues';
+import { TestDensity, setKnownStructNames, setKnownStructInfos } from './generator/boundaryValues';
 import { FunctionParameter } from './types';
 
 let buildRunner: BuildRunner;
@@ -92,7 +93,8 @@ export async function activate(context: vscode.ExtensionContext) {
                                 result.functionName,
                                 result.parameters,
                                 result.returnType,
-                                result.testCode
+                                result.testCode,
+                                result.structs
                             );
                             
                             buildRunner.log(`Webview closed. shouldBuildAndRun: ${shouldBuildAndRun}`);
@@ -207,6 +209,7 @@ async function generateTestForCurrentFunction(parser: any): Promise<{
     testCode: string;
     parameters: FunctionParameter[];
     returnType: string;
+    structs: import('./types').StructInfo[];
 } | null> {
     
     // ========================================
@@ -324,6 +327,13 @@ async function generateTestForCurrentFunction(parser: any): Promise<{
             `📊 Function uses ${usedGlobals.length} global variable(s): ${usedGlobals.map(g => g.name).join(', ')}`
         );
     }
+    // Step 3.5: Extract Struct Definitions
+    // ========================================
+    const structs = StructExtractor.extractStructs(tree);
+    setKnownStructNames(structs.map(s => s.name));
+    setKnownStructInfos(structs);
+    buildRunner.log(`Found ${structs.length} struct definition(s)`);
+    // ========================================
 
     // ========================================
     // Step 4: Generate Test Code + Case Info
@@ -392,7 +402,8 @@ async function generateTestForCurrentFunction(parser: any): Promise<{
             testCases,
             testCode,
             parameters: targetFunction.parameters,
-            returnType: targetFunction.returnType
+            returnType: targetFunction.returnType,
+            structs
         };
 
     } catch (error) {
