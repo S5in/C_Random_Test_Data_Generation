@@ -91,7 +91,8 @@ export class StructExtractor {
             }
 
             return { name: typedefName, fields };
-        } catch {
+        } catch (err) {
+            console.error('StructExtractor.parseTypedefStruct: unexpected error:', err);
             return null;
         }
     }
@@ -129,7 +130,8 @@ export class StructExtractor {
                 }
             }
             return { name, fields };
-        } catch {
+        } catch (err) {
+            console.error('StructExtractor.parseStructSpecifier: unexpected error:', err);
             return null;
         }
     }

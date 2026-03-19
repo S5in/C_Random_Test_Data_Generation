@@ -622,19 +622,22 @@ function arrayEntriesForParam(param: FunctionParameter): ComplexEntry[] {
     return entries;
 }
 
-/** Fallback field count for struct boundary values when the struct definition is not available. */
+/** Fallback field count of 2 matches the legacy hardcoded two-field initializer behaviour
+ *  and provides a safe default for common Point/Coordinate-like structs when the
+ *  struct definition is not available at generation time. */
 const DEFAULT_STRUCT_FIELD_COUNT = 2;
 
 function structEntriesForParam(param: FunctionParameter, structInfo?: StructInfo): ComplexEntry[] {
     // Default to DEFAULT_STRUCT_FIELD_COUNT when structInfo is undefined (struct definition not available).
     // This matches the legacy hardcoded two-field initializer and is a safe fallback.
     const fieldCount = structInfo?.fields.length ?? DEFAULT_STRUCT_FIELD_COUNT;
+    const zeroInit = Array(fieldCount).fill('0').join(', ');
     const extremeInit = Array(fieldCount).fill('INT_MAX').join(', ');
     return [
         {
             label: 'struct-zero-init',
-            value: '{0}',
-            declaration: `${param.type} ${param.name} = {0}`,
+            value: `{${zeroInit}}`,
+            declaration: `${param.type} ${param.name} = {${zeroInit}}`,
             preamble: null,
             headers: [],
         },

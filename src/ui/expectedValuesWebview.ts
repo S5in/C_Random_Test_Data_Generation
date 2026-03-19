@@ -1070,6 +1070,10 @@ export class ExpectedValuesWebview {
             // We check for a matching opening and closing brace; if the value is
             // already brace-wrapped (e.g. "{0, 0}") we leave it as-is, otherwise
             // we wrap it (e.g. "0, 0" → "{0, 0}").
+            // Note: `/^\s*\{.*\}\s*$/s` requires BOTH a leading `{` and a trailing `}`
+            // (dot-all flag `s` lets `.*` span newlines). This is sufficient because
+            // struct values come from either the boundary generator (always well-formed)
+            // or user-entered text that we assemble ourselves from per-field inputs.
             const safeValue = /^\s*\{.*\}\s*$/s.test(value) ? value : `{${value}}`;
             return `${type} ${name} = ${safeValue}`;
         } else {
