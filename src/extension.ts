@@ -32,29 +32,71 @@ function escapeRegex(str: string): string {
 }
 
 /**
- * Extract typedef-struct names from C source text.
- *
- * Matches only non-nested `typedef struct { ... } Name;` patterns to avoid
- * false positives from variable declarations or other closing-brace forms.
- * Nested structs are intentionally not matched (they are uncommon in
- * typical C source under test, and the fix only needs approximate detection).
+ * A parsed typedef-struct definition found in C source text.
  */
-function extractTypedefStructNames(content: string): string[] {
-    const names: string[] = [];
+interface TypedefStructBlock {
+    /** The typedef alias name (e.g. "Rectangle") */
+    name: string;
+    /** The full typedef text as it appears in the source */
+    text: string;
+}
+
+/**
+ * Maximum number of characters to scan from the start of a header file when
+ * searching for its include guard (#ifndef GUARD_H).  Top-level include guards
+ * always appear within the first few hundred bytes; using a generous limit
+ * avoids matching #ifndef directives that appear inside conditional blocks
+ * deeper in the file.
+ */
+const INCLUDE_GUARD_SCAN_BYTES = 2048;
+
+/**
+ * Extract typedef-struct definitions from C source text.
+ * Returns both the full definition text and the alias name for each match.
+ *
+ * Only matches non-nested `typedef struct { ... } Name;` patterns to avoid
+ * false positives from variable declarations or union/enum typedefs.
+ *
+ * Limitation: typedef structs whose body contains nested struct/union members
+ * (e.g. `typedef struct { struct Inner i; } Outer;`) are NOT matched because
+ * the `[^{}]*` body constraint rejects nested braces.  This is intentional —
+ * the detection only needs to catch the common flat-struct case, and skipping
+ * these structs simply means no guard pre-define is attempted for them.
+ */
+function extractTypedefStructBlocks(content: string): TypedefStructBlock[] {
+    const blocks: TypedefStructBlock[] = [];
     // Match: typedef struct [optional-tag] { simple-body } Name ;
     // [^{}]* in the body prevents matching across nested braces.
     const re = /typedef\s+struct\b[^{}]*\{[^{}]*\}\s*([A-Za-z_][A-Za-z0-9_]*)\s*;/g;
     let m: RegExpExecArray | null;
     while ((m = re.exec(content)) !== null) {
-        names.push(m[1]);
+        blocks.push({ name: m[1], text: m[0] });
     }
-    return names;
+    return blocks;
+}
+
+/** Convenience wrapper: return only the alias names from typedef-struct definitions. */
+function extractTypedefStructNames(content: string): string[] {
+    return extractTypedefStructBlocks(content).map(b => b.name);
 }
 
 /**
- * Detect include guards that must be pre-defined (-DGUARD) when compiling
- * sourceFilePath, to prevent "conflicting types" errors caused by a header
- * that defines a struct typedef that the source file also defines inline.
+ * Collected information about headers that conflict with a source file's
+ * inline typedef-struct declarations.
+ */
+interface HeaderConflictInfo {
+    /** Include guard macro names to pre-define via -D, skipping the header body */
+    guards: string[];
+    /** Full content of each conflicting header, used to generate a supplement */
+    conflictingHeaders: Array<{ path: string; content: string }>;
+}
+
+/**
+ * Detect headers whose include guards must be pre-defined (-DGUARD) when
+ * compiling sourceFilePath, to prevent "conflicting types" errors caused by
+ * a header that defines a struct typedef that the source file also defines
+ * inline.  Also returns the header contents so callers can generate a
+ * supplement header for non-conflicting types (see generateSupplementHeader).
  *
  * Algorithm:
  *   1. Read the source file and collect its inline typedef-struct names.
@@ -64,21 +106,22 @@ function extractTypedefStructNames(content: string): string[] {
  *
  * Limitation: only works for #ifndef/#define include guards, not #pragma once.
  */
-function detectHeaderGuardsToSkip(sourceFilePath: string): string[] {
+function detectHeaderConflicts(sourceFilePath: string): HeaderConflictInfo {
     let sourceContent: string;
     try {
         sourceContent = fs.readFileSync(sourceFilePath, 'utf8');
     } catch {
-        return [];
+        return { guards: [], conflictingHeaders: [] };
     }
 
     const sourceTypedefNames = extractTypedefStructNames(sourceContent);
     if (sourceTypedefNames.length === 0) {
-        return [];
+        return { guards: [], conflictingHeaders: [] };
     }
 
     const sourceDir = path.dirname(sourceFilePath);
     const guards: string[] = [];
+    const conflictingHeaders: Array<{ path: string; content: string }> = [];
     const includeRe = /#include\s+"([^"]+)"/g;
     let incMatch: RegExpExecArray | null;
 
@@ -98,18 +141,68 @@ function detectHeaderGuardsToSkip(sourceFilePath: string): string[] {
         const hasConflict = headerTypedefNames.some(n => sourceTypedefNames.includes(n));
         if (!hasConflict) { continue; }
 
-        // Extract the include guard from the first few hundred characters of the
-        // header, where top-level include guards always appear.  Restricting to
-        // the file header avoids matching #ifndef directives inside conditional
-        // blocks deeper in the file.
-        const headerStart = headerContent.slice(0, 512);
+        // Extract the include guard from near the top of the header file.
+        // Top-level include guards always appear within the first
+        // INCLUDE_GUARD_SCAN_BYTES bytes; limiting the search avoids matching
+        // #ifndef directives inside conditional blocks deeper in the file.
+        const headerStart = headerContent.slice(0, INCLUDE_GUARD_SCAN_BYTES);
         const guardMatch = headerStart.match(/#ifndef\s+([A-Za-z0-9_]+)/);
         if (guardMatch) {
             guards.push(guardMatch[1]);
+            conflictingHeaders.push({ path: headerPath, content: headerContent });
         }
     }
 
-    return [...new Set(guards)];
+    return { guards: [...new Set(guards)], conflictingHeaders };
+}
+
+/**
+ * Generate a supplement header that provides typedef-struct types which are
+ * defined in conflicting headers (and thus skipped by the guard pre-define)
+ * but are NOT re-declared inline in the source file.
+ *
+ * Example: structs.h defines both Rectangle and Point.  testStructures.c
+ * redefines Rectangle inline (conflict) but uses Point without redefining it.
+ * Pre-defining STRUCTS_H skips the whole header — so Point disappears.
+ * The supplement header restores Point so the source compiles correctly.
+ *
+ * @returns { fileName, content } of the supplement header, or null when all
+ *          header types are already re-declared in the source (no supplement needed).
+ */
+function generateSupplementHeader(
+    sourceFilePath: string,
+    conflictingHeaders: Array<{ path: string; content: string }>
+): { fileName: string; content: string } | null {
+    let sourceContent: string;
+    try {
+        sourceContent = fs.readFileSync(sourceFilePath, 'utf8');
+    } catch {
+        return null;
+    }
+
+    const sourceTypedefNames = extractTypedefStructNames(sourceContent);
+    const sourceBaseName = path.basename(sourceFilePath, path.extname(sourceFilePath));
+    const supplementFileName = `${sourceBaseName}_types_supplement.h`;
+
+    const lines: string[] = [
+        `/* Auto-generated type supplement for ${path.basename(sourceFilePath)} */`,
+        `/* Provides types from skipped headers that are not re-declared in the source. */`,
+        ``
+    ];
+
+    let hasContent = false;
+    for (const header of conflictingHeaders) {
+        for (const block of extractTypedefStructBlocks(header.content)) {
+            if (!sourceTypedefNames.includes(block.name)) {
+                lines.push(block.text);
+                hasContent = true;
+            }
+        }
+    }
+
+    if (!hasContent) { return null; }
+
+    return { fileName: supplementFileName, content: lines.join('\n') + '\n' };
 }
 
 /**
@@ -474,15 +567,27 @@ async function generateTestForCurrentFunction(parser: any): Promise<{
 
     // Detect headers whose include guards must be pre-defined to prevent
     // duplicate struct typedef errors when compiling the source file.
-    const conflictGuards = detectHeaderGuardsToSkip(document.fileName);
+    const conflictInfo = detectHeaderConflicts(document.fileName);
+    const conflictGuards = conflictInfo.guards;
     if (conflictGuards.length > 0) {
         buildRunner.log(`Detected conflicting header guards: ${conflictGuards.join(', ')}`);
+    }
+
+    // When a header is skipped (guard pre-defined), any types it defines that
+    // are NOT re-declared inline in the source also disappear.  Generate a
+    // supplement header to restore those types (e.g. Point from structs.h).
+    const supplement = conflictInfo.conflictingHeaders.length > 0
+        ? generateSupplementHeader(document.fileName, conflictInfo.conflictingHeaders)
+        : null;
+    if (supplement) {
+        buildRunner.log(`Generated type supplement: ${supplement.fileName}`);
     }
     
     const cmakeContent = CMakeGenerator.generateWithInstructions(
         testFileName,
         sourceFileName,
-        conflictGuards
+        conflictGuards,
+        supplement?.fileName ?? null
     );
 
     // ========================================
@@ -493,6 +598,13 @@ async function generateTestForCurrentFunction(parser: any): Promise<{
     const cmakeFilePath = path.join(projectDir, 'CMakeLists.txt');
 
     try {
+        // Write supplement header first (CMakeLists.txt references it)
+        if (supplement) {
+            const supplementPath = path.join(projectDir, supplement.fileName);
+            await fs.promises.writeFile(supplementPath, supplement.content, 'utf8');
+            buildRunner.log(`Type supplement written: ${supplementPath}`);
+        }
+
         await fs.promises.writeFile(testFilePath, testCode, 'utf8');
         buildRunner.log(`Test file written: ${testFilePath}`);
 

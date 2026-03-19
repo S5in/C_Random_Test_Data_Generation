@@ -14,17 +14,24 @@ export class CMakeGenerator {
      * @param sourceFileName - Name of the source .c file (e.g., "math.c")
      * @returns CMakeLists.txt content
      */
-    static generate(testFileName: string, sourceFileName: string, conflictGuards: string[] = []): string {
+    static generate(testFileName: string, sourceFileName: string, conflictGuards: string[] = [], supplementHeader: string | null = null): string {
         const projectName = this.getProjectName(sourceFileName);
         const executableName = this.getExecutableName(testFileName);
 
         // When the source file both #includes a header that defines a struct typedef
         // AND also defines the same struct inline, the C compiler reports
-        // "conflicting types".  The fix is to pre-define the header's include guard
-        // (via -DGUARD_NAME) so the header body is skipped during compilation of
-        // the source file, leaving only the inline definition as the sole declaration.
+        // "conflicting types".  The fix has two parts:
+        //
+        //  1. COMPILE_DEFINITIONS: pre-define the header's include guard (-DGUARD_NAME)
+        //     so the header body is skipped, leaving only the inline definition.
+        //
+        //  2. COMPILE_FLAGS -include: when pre-defining the guard also skips other
+        //     types in that header that the source uses (e.g. Point), a generated
+        //     supplement header restores exactly those missing types.
         const guardDefsLine = conflictGuards.length > 0
             ? `\n            COMPILE_DEFINITIONS "${conflictGuards.join(';')}"` : '';
+        const compileFlagsLine = supplementHeader
+            ? `\n            COMPILE_FLAGS "-include ${supplementHeader}"` : '';
 
         return `cmake_minimum_required(VERSION 3.14)
         project(${projectName})
@@ -50,9 +57,11 @@ export class CMakeGenerator {
         # source defines a struct typedef that also appears in one of its included
         # headers, pre-define that header's include guard so the header body is
         # skipped — preventing a "conflicting types" error caused by the duplicate
-        # typedef declaration.
+        # typedef declaration.  When pre-defining the guard also skips other types
+        # used by the source (e.g. Point), COMPILE_FLAGS force-includes a generated
+        # supplement header that restores exactly those missing type definitions.
         set_source_files_properties(${sourceFileName} PROPERTIES
-            LANGUAGE C${guardDefsLine})
+            LANGUAGE C${guardDefsLine}${compileFlagsLine})
 
         # Add test executable: C++ test driver + C source file under test
         add_executable(${executableName}
@@ -137,9 +146,9 @@ export class CMakeGenerator {
     /**
      * Generate complete CMakeLists.txt with instructions
      */
-    static generateWithInstructions(testFileName: string, sourceFileName: string, conflictGuards: string[] = []): string {
+    static generateWithInstructions(testFileName: string, sourceFileName: string, conflictGuards: string[] = [], supplementHeader: string | null = null): string {
         const instructions = this.generateBuildInstructions(testFileName);
-        const cmake = this.generate(testFileName, sourceFileName, conflictGuards);
+        const cmake = this.generate(testFileName, sourceFileName, conflictGuards, supplementHeader);
         
         return instructions + '\n' + cmake;
     }
