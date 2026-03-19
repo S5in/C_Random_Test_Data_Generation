@@ -131,19 +131,31 @@ export class TestGenerator {
         globals: GlobalVariable[],
         density: TestDensity
     ): { code: string; cases: TestCaseInfo[] } {
+        // Static globals have internal linkage — they cannot be referenced from a
+        // C++ translation unit (no `extern` declaration is valid for them).  Only
+        // non-static globals can be saved/restored by the fixture and referenced in
+        // the generated test bodies.
+        const accessibleGlobals = globals.filter(g => !g.isStatic);
+
+        // When every used global is static (none are accessible from C++), fall
+        // back to regular test generation so the output compiles cleanly.
+        if (accessibleGlobals.length === 0) {
+            return this.generateRegularTestsWithInfo(func, density);
+        }
+
         const cases: TestCaseInfo[] = [];
 
-        let code = this.generateFixtureClass(func.name, globals);
+        let code = this.generateFixtureClass(func.name, accessibleGlobals);
 
-        const paramResult = this.generateParameterBoundaryTestsWithInfo(func, globals, density);
+        const paramResult = this.generateParameterBoundaryTestsWithInfo(func, accessibleGlobals, density);
         code += paramResult.code;
         cases.push(...paramResult.cases);
 
-        const globalResult = this.generateGlobalBoundaryTestsWithInfo(func, globals);
+        const globalResult = this.generateGlobalBoundaryTestsWithInfo(func, accessibleGlobals);
         code += globalResult.code;
         cases.push(...globalResult.cases);
 
-        const comboResult = this.generateCombinationTestsWithInfo(func, globals);
+        const comboResult = this.generateCombinationTestsWithInfo(func, accessibleGlobals);
         code += comboResult.code;
         cases.push(...comboResult.cases);
 
