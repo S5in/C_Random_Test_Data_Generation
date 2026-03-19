@@ -645,9 +645,9 @@ function structEntriesForParam(param: FunctionParameter, structInfo?: StructInfo
         },
         {
             // INT_MIN in every field: exercises the minimum boundary.
-            // Note: arithmetic like (INT_MIN - x) or negation of INT_MIN overflows
-            // in C (signed overflow is UB), so this case is intentionally documenting
-            // that the caller must handle it carefully.
+            // Note: arithmetic like (INT_MIN - 1) or negation of INT_MIN causes
+            // signed overflow (undefined behavior in C); the caller must handle
+            // this carefully.  In two's complement, -INT_MIN wraps to INT_MIN.
             label: 'struct-min-values',
             value: `{${minInit}}`,
             declaration: `${param.type} ${param.name} = {${minInit}}`,

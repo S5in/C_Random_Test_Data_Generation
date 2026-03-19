@@ -20,7 +20,7 @@ import { CMakeGenerator } from './generator/cmakeGenerator';
 import { BuildRunner } from './build/buildRunner';
 import { ExpectedValuesWebview } from './ui/expectedValuesWebview';
 import { TestDensity, setKnownStructNames, setKnownStructInfos } from './generator/boundaryValues';
-import { FunctionParameter } from './types';
+import { FunctionParameter, StructInfo } from './types';
 
 let buildRunner: BuildRunner;
 
@@ -209,7 +209,7 @@ async function generateTestForCurrentFunction(parser: any): Promise<{
     testCode: string;
     parameters: FunctionParameter[];
     returnType: string;
-    structs: import('./types').StructInfo[];
+    structs: StructInfo[];
 } | null> {
     
     // ========================================
@@ -330,11 +330,17 @@ async function generateTestForCurrentFunction(parser: any): Promise<{
 
     // ========================================
     // Step 3.5: Extract Struct Definitions
+    // Scan the current file AND every .c/.h file in the workspace so that
+    // struct types defined in other files (e.g. Rectangle in rectangle.h
+    // while editing main.c) are fully known to the boundary-value generator.
     // ========================================
-    const structs = StructExtractor.extractStructs(tree);
-    setKnownStructNames(structs.map(s => s.name));
-    setKnownStructInfos(structs);
-    buildRunner.log(`Found ${structs.length} struct definition(s)`);
+    const currentFileStructs = StructExtractor.extractStructs(tree);
+    const allStructs = await collectAllWorkspaceStructs(parser, document.fileName, currentFileStructs);
+    setKnownStructNames(allStructs.map(s => s.name));
+    setKnownStructInfos(allStructs);
+    buildRunner.log(`Found ${allStructs.length} struct definition(s) across workspace (${currentFileStructs.length} in current file)`);
+    const structs = allStructs;
+    // ========================================
 
     // ========================================
     // Step 4: Generate Test Code + Case Info
@@ -425,6 +431,63 @@ async function generateTestForCurrentFunction(parser: any): Promise<{
  * FIX: Uses test-name-specific regex so that "skip" doesn't
  * cause subsequent answers to shift into wrong test blocks.
  */
+
+/**
+ * Collect struct definitions from all .c and .h files in the workspace,
+ * merging with structs already extracted from the current file.
+ *
+ * Current-file structs take priority and are never overwritten.  Other
+ * workspace files are scanned in arbitrary order; the first definition
+ * found for a given struct name wins.
+ *
+ * Files that cannot be read or parsed are silently skipped so that a
+ * single bad header never blocks test generation entirely.
+ *
+ * @param parser          The initialised Tree-sitter parser instance.
+ * @param currentFilePath Absolute path of the file being edited (already parsed).
+ * @param currentFileStructs Structs already extracted from the current file.
+ * @returns Deduplicated list of all known StructInfo objects.
+ */
+async function collectAllWorkspaceStructs(
+    parser: any,
+    currentFilePath: string,
+    currentFileStructs: StructInfo[]
+): Promise<StructInfo[]> {
+    // Current-file definitions take priority – register them first.
+    const merged = new Map<string, StructInfo>();
+    for (const s of currentFileStructs) {
+        merged.set(s.name.toLowerCase(), s);
+    }
+
+    // Find every C source and header file in the workspace.
+    // Exclude common noise directories (node_modules, .git, build, etc.).
+    const uris = await vscode.workspace.findFiles(
+        '**/*.{c,h}',
+        '{**/node_modules/**,**/.git/**,**/build/**,**/dist/**,**/out/**}'
+    );
+
+    for (const uri of uris) {
+        // Skip the current file – it was already processed above.
+        if (uri.fsPath === currentFilePath) { continue; }
+
+        try {
+            const content = await fs.promises.readFile(uri.fsPath, 'utf8');
+            const fileTree = parser.parse(content);
+            const fileStructs = StructExtractor.extractStructs(fileTree);
+            for (const s of fileStructs) {
+                const key = s.name.toLowerCase();
+                if (!merged.has(key)) {
+                    merged.set(key, s);
+                }
+            }
+        } catch (err) {
+            // A single unreadable/unparseable file should not abort generation.
+            buildRunner.log(`collectAllWorkspaceStructs: skipped ${uri.fsPath} (${err})`);
+        }
+    }
+
+    return Array.from(merged.values());
+}
 
 /**
  * Extension deactivation
