@@ -14,9 +14,17 @@ export class CMakeGenerator {
      * @param sourceFileName - Name of the source .c file (e.g., "math.c")
      * @returns CMakeLists.txt content
      */
-    static generate(testFileName: string, sourceFileName: string): string {
+    static generate(testFileName: string, sourceFileName: string, conflictGuards: string[] = []): string {
         const projectName = this.getProjectName(sourceFileName);
         const executableName = this.getExecutableName(testFileName);
+
+        // When the source file both #includes a header that defines a struct typedef
+        // AND also defines the same struct inline, the C compiler reports
+        // "conflicting types".  The fix is to pre-define the header's include guard
+        // (via -DGUARD_NAME) so the header body is skipped during compilation of
+        // the source file, leaving only the inline definition as the sole declaration.
+        const guardDefsLine = conflictGuards.length > 0
+            ? `\n            COMPILE_DEFINITIONS "${conflictGuards.join(';')}"` : '';
 
         return `cmake_minimum_required(VERSION 3.14)
         project(${projectName})
@@ -28,15 +36,9 @@ export class CMakeGenerator {
         # Disable GNU C++ extensions for portability
         set(CMAKE_CXX_EXTENSIONS OFF)
 
-        # Set C standard with GNU extensions enabled.
-        # GNU C11 (-std=gnu11) allows re-declaration of a typedef with a compatible
-        # anonymous struct type (identical fields), which is a GCC extension not
-        # present in strict ISO C11.  This is needed when the source file both
-        # includes a header that defines a struct typedef AND also defines the
-        # same struct typedef inline with identical fields.
+        # Set C standard
         set(CMAKE_C_STANDARD 11)
         set(CMAKE_C_STANDARD_REQUIRED ON)
-        set(CMAKE_C_EXTENSIONS ON)
 
         # Find Google Test
         find_package(GTest REQUIRED)
@@ -44,10 +46,13 @@ export class CMakeGenerator {
         # Include directories
         include_directories(\${GTEST_INCLUDE_DIRS})
 
-        # Compile the C source file with the C compiler (not C++) so that
-        # GCC's GNU C mode accepts identical typedef re-declarations that
-        # would be a hard error in C++.
-        set_source_files_properties(${sourceFileName} PROPERTIES LANGUAGE C)
+        # Compile the C source file with the C compiler (not C++) and, when the
+        # source defines a struct typedef that also appears in one of its included
+        # headers, pre-define that header's include guard so the header body is
+        # skipped — preventing a "conflicting types" error caused by the duplicate
+        # typedef declaration.
+        set_source_files_properties(${sourceFileName} PROPERTIES
+            LANGUAGE C${guardDefsLine})
 
         # Add test executable: C++ test driver + C source file under test
         add_executable(${executableName}
@@ -132,9 +137,9 @@ export class CMakeGenerator {
     /**
      * Generate complete CMakeLists.txt with instructions
      */
-    static generateWithInstructions(testFileName: string, sourceFileName: string): string {
+    static generateWithInstructions(testFileName: string, sourceFileName: string, conflictGuards: string[] = []): string {
         const instructions = this.generateBuildInstructions(testFileName);
-        const cmake = this.generate(testFileName, sourceFileName);
+        const cmake = this.generate(testFileName, sourceFileName, conflictGuards);
         
         return instructions + '\n' + cmake;
     }

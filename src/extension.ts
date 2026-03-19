@@ -32,6 +32,87 @@ function escapeRegex(str: string): string {
 }
 
 /**
+ * Extract typedef-struct names from C source text.
+ *
+ * Matches only non-nested `typedef struct { ... } Name;` patterns to avoid
+ * false positives from variable declarations or other closing-brace forms.
+ * Nested structs are intentionally not matched (they are uncommon in
+ * typical C source under test, and the fix only needs approximate detection).
+ */
+function extractTypedefStructNames(content: string): string[] {
+    const names: string[] = [];
+    // Match: typedef struct [optional-tag] { simple-body } Name ;
+    // [^{}]* in the body prevents matching across nested braces.
+    const re = /typedef\s+struct\b[^{}]*\{[^{}]*\}\s*([A-Za-z_][A-Za-z0-9_]*)\s*;/g;
+    let m: RegExpExecArray | null;
+    while ((m = re.exec(content)) !== null) {
+        names.push(m[1]);
+    }
+    return names;
+}
+
+/**
+ * Detect include guards that must be pre-defined (-DGUARD) when compiling
+ * sourceFilePath, to prevent "conflicting types" errors caused by a header
+ * that defines a struct typedef that the source file also defines inline.
+ *
+ * Algorithm:
+ *   1. Read the source file and collect its inline typedef-struct names.
+ *   2. For each local #include "..." in the source, read the header.
+ *   3. If the header defines any of the same typedef names, extract the
+ *      header's #ifndef include guard and record it.
+ *
+ * Limitation: only works for #ifndef/#define include guards, not #pragma once.
+ */
+function detectHeaderGuardsToSkip(sourceFilePath: string): string[] {
+    let sourceContent: string;
+    try {
+        sourceContent = fs.readFileSync(sourceFilePath, 'utf8');
+    } catch {
+        return [];
+    }
+
+    const sourceTypedefNames = extractTypedefStructNames(sourceContent);
+    if (sourceTypedefNames.length === 0) {
+        return [];
+    }
+
+    const sourceDir = path.dirname(sourceFilePath);
+    const guards: string[] = [];
+    const includeRe = /#include\s+"([^"]+)"/g;
+    let incMatch: RegExpExecArray | null;
+
+    while ((incMatch = includeRe.exec(sourceContent)) !== null) {
+        const headerName = incMatch[1];
+        const headerPath = path.join(sourceDir, headerName);
+        if (!fs.existsSync(headerPath)) { continue; }
+
+        let headerContent: string;
+        try {
+            headerContent = fs.readFileSync(headerPath, 'utf8');
+        } catch {
+            continue;
+        }
+
+        const headerTypedefNames = extractTypedefStructNames(headerContent);
+        const hasConflict = headerTypedefNames.some(n => sourceTypedefNames.includes(n));
+        if (!hasConflict) { continue; }
+
+        // Extract the include guard from the first few hundred characters of the
+        // header, where top-level include guards always appear.  Restricting to
+        // the file header avoids matching #ifndef directives inside conditional
+        // blocks deeper in the file.
+        const headerStart = headerContent.slice(0, 512);
+        const guardMatch = headerStart.match(/#ifndef\s+([A-Za-z0-9_]+)/);
+        if (guardMatch) {
+            guards.push(guardMatch[1]);
+        }
+    }
+
+    return [...new Set(guards)];
+}
+
+/**
  * Extension activation
  */
 export async function activate(context: vscode.ExtensionContext) {
@@ -390,10 +471,18 @@ async function generateTestForCurrentFunction(parser: any): Promise<{
     const testFileName = `${targetFunction.name}_test.cpp`;
     
     buildRunner.log(`Creating test file: ${testFileName}`);
+
+    // Detect headers whose include guards must be pre-defined to prevent
+    // duplicate struct typedef errors when compiling the source file.
+    const conflictGuards = detectHeaderGuardsToSkip(document.fileName);
+    if (conflictGuards.length > 0) {
+        buildRunner.log(`Detected conflicting header guards: ${conflictGuards.join(', ')}`);
+    }
     
     const cmakeContent = CMakeGenerator.generateWithInstructions(
         testFileName,
-        sourceFileName
+        sourceFileName,
+        conflictGuards
     );
 
     // ========================================
