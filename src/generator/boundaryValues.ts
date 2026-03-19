@@ -623,8 +623,8 @@ function arrayEntriesForParam(param: FunctionParameter): ComplexEntry[] {
 }
 
 function structEntriesForParam(param: FunctionParameter, structInfo?: StructInfo): ComplexEntry[] {
-    // Default to 2 fields — matches the legacy hardcoded initializer and covers
-    // the common two-field case when no struct definition is available.
+    // Default to 2 fields when structInfo is undefined (struct definition not available).
+    // This matches the legacy hardcoded two-field initializer and is a safe fallback.
     const fieldCount = structInfo?.fields.length ?? 2;
     const extremeInit = Array(fieldCount).fill('INT_MAX').join(', ');
     return [
@@ -650,13 +650,21 @@ function structEntriesForParam(param: FunctionParameter, structInfo?: StructInfo
  * Handles both "struct Foo" and typedef'd "Foo" style types.
  */
 function findStructInfo(type: string, structs: StructInfo[] = []): StructInfo | undefined {
-    const normalized = normalizeType(type);
-    // Strip "struct " prefix if present to get the bare name
-    const bareName = normalized.startsWith('struct ') ? normalized.slice('struct '.length).trim() : normalized;
+    const bareName = getStructBareName(type);
     // Look in the explicitly provided list first, then fall back to the module-level store
     return (structs.length > 0 ? structs : knownStructInfos).find(
         s => s.name.toLowerCase() === bareName
     );
+}
+
+/**
+ * Return the bare struct name from a type string, lower-cased.
+ * Strips the "struct " prefix if present.
+ * e.g. "struct Point" → "point", "Point" → "point"
+ */
+export function getStructBareName(type: string): string {
+    const normalized = normalizeType(type);
+    return normalized.startsWith('struct ') ? normalized.slice('struct '.length).trim() : normalized;
 }
 
 // ---------------------------------------------------------------------------

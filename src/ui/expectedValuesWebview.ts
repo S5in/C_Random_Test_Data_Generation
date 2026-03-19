@@ -8,7 +8,7 @@ import * as vscode from 'vscode';
 import * as fs from 'fs';
 import { TestCaseInfo } from '../generator/testGenerator';
 import { FunctionParameter, StructInfo } from '../types';
-import { isArrayType, isPointerType, isStructType } from '../generator/boundaryValues';
+import { isArrayType, isPointerType, isStructType, getStructBareName } from '../generator/boundaryValues';
 
 interface CustomTest {
     name: string;
@@ -1078,13 +1078,11 @@ export class ExpectedValuesWebview {
      * produces: "&lt;struct Point&gt; {x: 0, y: 0}"
      */
     private static formatStructValue(type: string, value: string, structs: StructInfo[]): string {
-        // Determine the bare struct name from the type string
+        // Preserve the original casing for display, use shared helper for lookup
         const normalized = type.trim().replace(/\s+/g, ' ');
-        const bareName = normalized.toLowerCase().startsWith('struct ')
-            ? normalized.slice('struct '.length).trim()
-            : normalized.trim();
+        const bareName = getStructBareName(type); // lowercase bare name for lookup
 
-        const structInfo = structs.find(s => s.name.toLowerCase() === bareName.toLowerCase());
+        const structInfo = structs.find(s => s.name.toLowerCase() === bareName);
         const displayType = this.escapeHtml(normalized);
 
         // Extract the content inside braces, if present
