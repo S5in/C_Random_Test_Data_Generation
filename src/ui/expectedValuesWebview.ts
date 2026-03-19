@@ -98,6 +98,15 @@ export class ExpectedValuesWebview {
         testCode: string
     ): string {
         const paramNames = params.map(p => p.name);
+        const formattedInputsArr = testCases.map(tc =>
+            tc.paramValues.map((pv, i) => {
+                const paramType = params[i]?.type ?? '';
+                if (isStructType(paramType)) {
+                    return `${pv.name} = &lt;struct&gt; ${this.escapeHtml(pv.value)}`;
+                }
+                return `${pv.name} = ${this.escapeHtml(pv.value)}`;
+            }).join(', ') || 'No parameters'
+        );
         const testCaseHtml = testCases.map((tc, index) => `
             <div class="test-case" id="test-case-${index}">
                 <div class="test-header">
@@ -116,7 +125,7 @@ export class ExpectedValuesWebview {
                 </div>
                 <div class="test-inputs">
                     <span class="label">Inputs:</span>
-                    <code>${this.escapeHtml(tc.inputs || 'No parameters')}</code>
+                    <code>${formattedInputsArr[index]}</code>
                 </div>
                 ${tc.globalValues && tc.globalValues.length > 0 ? `
                 <div class="test-globals">
