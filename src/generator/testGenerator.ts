@@ -372,7 +372,12 @@ export class TestGenerator {
             result += `    ${declaration};\n`;
         } else {
             const value = set.values[index] ?? '0';
-            result += `    ${param.type} ${param.name} = ${value};\n`;
+            // For struct types, ensure aggregate initializer syntax {…} even if the
+            // paramDeclarations override was not populated.
+            const safeValue = isStructType(param.type) && !value.startsWith('{')
+                ? `{${value}}`
+                : value;
+            result += `    ${param.type} ${param.name} = ${safeValue};\n`;
         }
 
         return result;
