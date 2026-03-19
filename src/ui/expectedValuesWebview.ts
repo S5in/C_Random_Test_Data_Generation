@@ -7,7 +7,7 @@
 import * as vscode from 'vscode';
 import * as fs from 'fs';
 import { TestCaseInfo } from '../generator/testGenerator';
-import { FunctionParameter } from '../types';
+import { FunctionParameter, StructInfo } from '../types';
 import { isArrayType, isPointerType, isStructType } from '../generator/boundaryValues';
 
 interface CustomTest {
@@ -27,7 +27,8 @@ export class ExpectedValuesWebview {
         functionName: string,
         params: FunctionParameter[],
         returnType: string,
-        testCode?: string
+        testCode?: string,
+        structs?: StructInfo[]
     ): Promise<boolean> {
         return new Promise((resolve) => {
             const panel = vscode.window.createWebviewPanel(
@@ -40,7 +41,7 @@ export class ExpectedValuesWebview {
                 }
             );
 
-            panel.webview.html = this.getHtmlContent(testCases, functionName, params, returnType, testCode || '');
+            panel.webview.html = this.getHtmlContent(testCases, functionName, params, returnType, testCode || '', structs ?? []);
 
             let resolved = false;
 
@@ -95,14 +96,16 @@ export class ExpectedValuesWebview {
         functionName: string,
         params: FunctionParameter[],
         returnType: string,
-        testCode: string
+        testCode: string,
+        structs: StructInfo[] = []
     ): string {
         const paramNames = params.map(p => p.name);
         const formattedInputsArr = testCases.map(tc =>
             tc.paramValues.map((pv, i) => {
                 const paramType = params[i]?.type ?? '';
                 if (isStructType(paramType)) {
-                    return `${pv.name} = &lt;struct&gt; ${this.escapeHtml(pv.value)}`;
+                    const structLabel = this.formatStructValue(paramType, pv.value, structs);
+                    return `${pv.name} = ${structLabel}`;
                 }
                 return `${pv.name} = ${this.escapeHtml(pv.value)}`;
             }).join(', ') || 'No parameters'
@@ -1067,5 +1070,38 @@ export class ExpectedValuesWebview {
             "'": '&#039;'
         };
         return text.replace(/[&<>"']/g, m => map[m]);
+    }
+
+    /**
+     * Format a struct value for display, pairing field names with their values.
+     * e.g. type="struct Point", value="{0, 0}", structs=[{name:"Point", fields:[{name:"x",...},{name:"y",...}]}]
+     * produces: "&lt;struct Point&gt; {x: 0, y: 0}"
+     */
+    private static formatStructValue(type: string, value: string, structs: StructInfo[]): string {
+        // Determine the bare struct name from the type string
+        const normalized = type.trim().replace(/\s+/g, ' ');
+        const bareName = normalized.toLowerCase().startsWith('struct ')
+            ? normalized.slice('struct '.length).trim()
+            : normalized.trim();
+
+        const structInfo = structs.find(s => s.name.toLowerCase() === bareName.toLowerCase());
+        const displayType = this.escapeHtml(normalized);
+
+        // Extract the content inside braces, if present
+        const braceMatch = value.match(/^\{(.*)\}$/s);
+        if (!braceMatch || !structInfo || structInfo.fields.length === 0) {
+            return `&lt;${displayType}&gt; ${this.escapeHtml(value)}`;
+        }
+
+        // Split the brace content into individual field values
+        const rawContent = braceMatch[1];
+        const fieldValues = rawContent.split(',').map(v => v.trim());
+
+        const pairs = structInfo.fields.map((field, idx) => {
+            const val = fieldValues[idx] !== undefined ? fieldValues[idx] : '?';
+            return `${this.escapeHtml(field.name)}: ${this.escapeHtml(val)}`;
+        });
+
+        return `&lt;${displayType}&gt; {${pairs.join(', ')}}`;
     }
 }
