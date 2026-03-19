@@ -323,6 +323,7 @@ function sanitizeBoundaryLabel(label: string): string {
         .replace(/array-single-element/g,      'ArraySingle')
         .replace(/array-typical/g,             'ArrayTypical')
         .replace(/struct-zero-init/g,          'StructZero')
+        .replace(/struct-min-values/g,         'StructMin')
         .replace(/struct-extreme-values/g,  'StructExtreme')
         .replace(/null-pointer/g,           'NullPointer')
         .replace(/pointer-to-zero/g,        'PointerToZero')
@@ -625,6 +626,7 @@ function structEntriesForParam(param: FunctionParameter, structInfo?: StructInfo
     // This matches the legacy hardcoded two-field initializer and is a safe fallback.
     const fieldCount = structInfo?.fields.length ?? DEFAULT_STRUCT_FIELD_COUNT;
     const zeroInit = Array(fieldCount).fill('0').join(', ');
+    const minInit = Array(fieldCount).fill('INT_MIN').join(', ');
     const extremeInit = Array(fieldCount).fill('INT_MAX').join(', ');
     return [
         {
@@ -633,6 +635,17 @@ function structEntriesForParam(param: FunctionParameter, structInfo?: StructInfo
             declaration: `${param.type} ${param.name} = {${zeroInit}}`,
             preamble: null,
             headers: [],
+            },
+        {
+            // INT_MIN in every field: exercises the minimum boundary.
+            // Note: arithmetic like (INT_MIN - 1) or negation of INT_MIN causes
+            // signed overflow (undefined behavior in C); the caller must handle
+            // this carefully.  In two's complement, -INT_MIN wraps to INT_MIN.
+            label: 'struct-min-values',
+            value: `{${minInit}}`,
+            declaration: `${param.type} ${param.name} = {${minInit}}`,
+            preamble: null,
+            headers: ['climits'],
         },
         {
             label: 'struct-extreme-values',

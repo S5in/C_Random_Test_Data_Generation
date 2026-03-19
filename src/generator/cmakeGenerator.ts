@@ -14,10 +14,27 @@ export class CMakeGenerator {
      * @param sourceFileName - Name of the source .c file (e.g., "math.c")
      * @returns CMakeLists.txt content
      */
-    static generate(testFileName: string, sourceFileName: string): string {
+        static generate(testFileName: string, sourceFileName: string, conflictGuards: string[] = [], forceIncludes: string[] = []): string {
         const projectName = this.getProjectName(sourceFileName);
         const executableName = this.getExecutableName(testFileName);
 
+        // When the source file both #includes a header that defines a struct typedef
+        // AND also defines the same struct inline, the C compiler reports
+        // "conflicting types".  The fix has two parts:
+        //
+        //  1. COMPILE_DEFINITIONS: pre-define the header's include guard (-DGUARD_NAME)
+        //     so the header body is skipped, leaving only the inline definition.
+        //
+        //  2. COMPILE_FLAGS -include: one or more headers are force-included before
+        //     the source file is compiled.  This covers two sub-cases:
+        //       a. A generated supplement header restores types from a skipped header
+        //          that the source uses but does not redefine inline (e.g. Point).
+        //       b. Standard C headers used by the source (e.g. <limits.h> for INT_MIN)
+        //          that the source file omitted are injected so the build does not fail.
+        const guardDefsLine = conflictGuards.length > 0
+            ? `\n            COMPILE_DEFINITIONS "${conflictGuards.join(';')}"` : '';
+        const compileFlagsLine = forceIncludes.length > 0
+            ? `\n            COMPILE_FLAGS "${forceIncludes.map(h => `-include ${h}`).join(' ')}"` : '';
         return `cmake_minimum_required(VERSION 3.14)
         project(${projectName})
 
@@ -28,14 +45,32 @@ export class CMakeGenerator {
         # Disable compiler extensions for portability
         set(CMAKE_CXX_EXTENSIONS OFF)
 
+        # Set C standard
+        set(CMAKE_C_STANDARD 11)
+        set(CMAKE_C_STANDARD_REQUIRED ON)
+
         # Find Google Test
         find_package(GTest REQUIRED)
 
         # Include directories
         include_directories(\${GTEST_INCLUDE_DIRS})
 
-        # Add test executable
-        add_executable(${executableName} ${testFileName})
+        # Compile the C source file with the C compiler (not C++) and, when the
+        # source defines a struct typedef that also appears in one of its included
+        # headers, pre-define that header's include guard so the header body is
+        # skipped — preventing a "conflicting types" error caused by the duplicate
+        # typedef declaration.  COMPILE_FLAGS force-includes any headers needed to
+        # restore types that would otherwise be missing: a generated supplement
+        # header for types skipped along with the header guard, and any standard C
+        # headers (e.g. <limits.h>) used by the source file but not explicitly
+        # included in it.
+        set_source_files_properties(${sourceFileName} PROPERTIES
+            LANGUAGE C${guardDefsLine}${compileFlagsLine})
+        # Add test executable: C++ test driver + C source file under test
+        add_executable(${executableName}
+            ${testFileName}
+            ${sourceFileName}
+        )
 
         # Link Google Test
         # Try modern CMake targets first, fall back to variables
@@ -114,9 +149,9 @@ export class CMakeGenerator {
     /**
      * Generate complete CMakeLists.txt with instructions
      */
-    static generateWithInstructions(testFileName: string, sourceFileName: string): string {
+    static generateWithInstructions(testFileName: string, sourceFileName: string, conflictGuards: string[] = [], forceIncludes: string[] = []): string {
         const instructions = this.generateBuildInstructions(testFileName);
-        const cmake = this.generate(testFileName, sourceFileName);
+        const cmake = this.generate(testFileName, sourceFileName, conflictGuards, forceIncludes);
         
         return instructions + '\n' + cmake;
     }
