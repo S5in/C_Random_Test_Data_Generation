@@ -68,7 +68,8 @@ export class StructExtractor {
 
             if (!structNode || !typedefName) { return null; }
 
-            // If the struct already has a name, parseStructSpecifier handles it.
+            // If the struct already has a name, parseStructSpecifier handles it
+            // when it visits the struct_specifier child, avoiding duplicate entries.
             const structNameNode = structNode.childForFieldName('name');
             if (structNameNode) { return null; }
 

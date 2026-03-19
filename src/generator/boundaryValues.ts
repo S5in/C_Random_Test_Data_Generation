@@ -622,10 +622,13 @@ function arrayEntriesForParam(param: FunctionParameter): ComplexEntry[] {
     return entries;
 }
 
+/** Fallback field count for struct boundary values when the struct definition is not available. */
+const DEFAULT_STRUCT_FIELD_COUNT = 2;
+
 function structEntriesForParam(param: FunctionParameter, structInfo?: StructInfo): ComplexEntry[] {
-    // Default to 2 fields when structInfo is undefined (struct definition not available).
+    // Default to DEFAULT_STRUCT_FIELD_COUNT when structInfo is undefined (struct definition not available).
     // This matches the legacy hardcoded two-field initializer and is a safe fallback.
-    const fieldCount = structInfo?.fields.length ?? 2;
+    const fieldCount = structInfo?.fields.length ?? DEFAULT_STRUCT_FIELD_COUNT;
     const extremeInit = Array(fieldCount).fill('INT_MAX').join(', ');
     return [
         {
