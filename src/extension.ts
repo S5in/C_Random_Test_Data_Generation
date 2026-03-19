@@ -206,6 +206,94 @@ function generateSupplementHeader(
 }
 
 /**
+ * Standard C headers and the macros/constants they define.
+ * Used to detect when a C source file uses a macro without the necessary
+ * #include, so the extension can inject it via CMake -include flags.
+ */
+const SYSTEM_HEADER_MACROS: Array<{ header: string; macros: string[] }> = [
+    {
+        header: 'limits.h',
+        macros: [
+            'INT_MIN', 'INT_MAX', 'UINT_MAX',
+            'LONG_MIN', 'LONG_MAX', 'ULONG_MAX',
+            'LLONG_MIN', 'LLONG_MAX', 'ULLONG_MAX',
+            'CHAR_MIN', 'CHAR_MAX', 'SCHAR_MIN', 'SCHAR_MAX', 'UCHAR_MAX',
+            'SHRT_MIN', 'SHRT_MAX', 'USHRT_MAX',
+            'MB_LEN_MAX', 'CHAR_BIT'
+        ]
+    },
+    {
+        header: 'float.h',
+        macros: [
+            'FLT_MIN', 'FLT_MAX', 'FLT_EPSILON', 'FLT_DIG',
+            'DBL_MIN', 'DBL_MAX', 'DBL_EPSILON', 'DBL_DIG',
+            'LDBL_MIN', 'LDBL_MAX', 'LDBL_EPSILON'
+        ]
+    },
+    {
+        header: 'stdint.h',
+        macros: [
+            'INT8_MIN', 'INT8_MAX', 'INT16_MIN', 'INT16_MAX',
+            'INT32_MIN', 'INT32_MAX', 'INT64_MIN', 'INT64_MAX',
+            'UINT8_MAX', 'UINT16_MAX', 'UINT32_MAX', 'UINT64_MAX',
+            'INTPTR_MIN', 'INTPTR_MAX', 'UINTPTR_MAX',
+            'SIZE_MAX', 'PTRDIFF_MIN', 'PTRDIFF_MAX'
+        ]
+    },
+    {
+        header: 'stddef.h',
+        macros: ['offsetof']
+    }
+];
+
+/**
+ * Detect standard C headers that are referenced (via their macros/constants)
+ * in the source file but are not explicitly #included.
+ *
+ * Returns a list of header base-names (e.g. ["limits.h"]) that should be
+ * force-included via CMake COMPILE_FLAGS "-include limits.h" so that the C
+ * source file compiles successfully as a standalone translation unit.
+ *
+ * Only system headers listed in SYSTEM_HEADER_MACROS are checked.  Headers
+ * that are already present as either #include <header.h> or as a transitive
+ * include via another header that is already included are not returned (we
+ * only check direct #include directives as a heuristic — false negatives are
+ * acceptable; false positives cause harmless redundant includes).
+ */
+function detectMissingSystemIncludes(sourceFilePath: string): string[] {
+    let sourceContent: string;
+    try {
+        sourceContent = fs.readFileSync(sourceFilePath, 'utf8');
+    } catch {
+        return [];
+    }
+
+    // Collect system headers already #included in the source (both <h> and "h").
+    // Store only the basename so "#include <limits.h>" and "#include "limits.h""
+    // both match the header name "limits.h" used in SYSTEM_HEADER_MACROS.
+    const includedHeaders = new Set<string>();
+    const includeRe = /#include\s+[<"]([^>"]+)[>"]/g;
+    let m: RegExpExecArray | null;
+    while ((m = includeRe.exec(sourceContent)) !== null) {
+        includedHeaders.add(path.basename(m[1]));
+    }
+
+    const missing: string[] = [];
+    for (const { header, macros } of SYSTEM_HEADER_MACROS) {
+        if (includedHeaders.has(header)) { continue; }
+        // Check if any macro from this header appears as a whole-word identifier.
+        const usesAny = macros.some(macro => {
+            const macroRe = new RegExp(`\\b${escapeRegex(macro)}\\b`);
+            return macroRe.test(sourceContent);
+        });
+        if (usesAny) {
+            missing.push(header);
+        }
+    }
+    return missing;
+}
+
+/**
  * Extension activation
  */
 export async function activate(context: vscode.ExtensionContext) {
@@ -582,12 +670,28 @@ async function generateTestForCurrentFunction(parser: any): Promise<{
     if (supplement) {
         buildRunner.log(`Generated type supplement: ${supplement.fileName}`);
     }
-    
+
+    // Detect standard C headers used by the source file but not explicitly
+    // #included (e.g. <limits.h> when the file uses INT_MIN).  These are
+    // injected via CMake COMPILE_FLAGS so that the C translation unit compiles
+    // without requiring the user to modify their source file.
+    const missingIncludes = detectMissingSystemIncludes(document.fileName);
+    if (missingIncludes.length > 0) {
+        buildRunner.log(`Detected missing system includes: ${missingIncludes.join(', ')}`);
+    }
+
+    // Combine all force-includes: missing system headers first, then the
+    // supplement header (if any).  All become -include flags in COMPILE_FLAGS.
+    const forceIncludes: string[] = [
+        ...missingIncludes,
+        ...(supplement ? [supplement.fileName] : [])
+    ];
+
     const cmakeContent = CMakeGenerator.generateWithInstructions(
         testFileName,
         sourceFileName,
         conflictGuards,
-        supplement?.fileName ?? null
+        forceIncludes
     );
 
     // ========================================

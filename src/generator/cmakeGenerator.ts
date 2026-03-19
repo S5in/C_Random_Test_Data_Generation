@@ -14,7 +14,7 @@ export class CMakeGenerator {
      * @param sourceFileName - Name of the source .c file (e.g., "math.c")
      * @returns CMakeLists.txt content
      */
-    static generate(testFileName: string, sourceFileName: string, conflictGuards: string[] = [], supplementHeader: string | null = null): string {
+    static generate(testFileName: string, sourceFileName: string, conflictGuards: string[] = [], forceIncludes: string[] = []): string {
         const projectName = this.getProjectName(sourceFileName);
         const executableName = this.getExecutableName(testFileName);
 
@@ -25,13 +25,16 @@ export class CMakeGenerator {
         //  1. COMPILE_DEFINITIONS: pre-define the header's include guard (-DGUARD_NAME)
         //     so the header body is skipped, leaving only the inline definition.
         //
-        //  2. COMPILE_FLAGS -include: when pre-defining the guard also skips other
-        //     types in that header that the source uses (e.g. Point), a generated
-        //     supplement header restores exactly those missing types.
+        //  2. COMPILE_FLAGS -include: one or more headers are force-included before
+        //     the source file is compiled.  This covers two sub-cases:
+        //       a. A generated supplement header restores types from a skipped header
+        //          that the source uses but does not redefine inline (e.g. Point).
+        //       b. Standard C headers used by the source (e.g. <limits.h> for INT_MIN)
+        //          that the source file omitted are injected so the build does not fail.
         const guardDefsLine = conflictGuards.length > 0
             ? `\n            COMPILE_DEFINITIONS "${conflictGuards.join(';')}"` : '';
-        const compileFlagsLine = supplementHeader
-            ? `\n            COMPILE_FLAGS "-include ${supplementHeader}"` : '';
+        const compileFlagsLine = forceIncludes.length > 0
+            ? `\n            COMPILE_FLAGS "${forceIncludes.map(h => `-include ${h}`).join(' ')}"` : '';
 
         return `cmake_minimum_required(VERSION 3.14)
         project(${projectName})
@@ -57,9 +60,11 @@ export class CMakeGenerator {
         # source defines a struct typedef that also appears in one of its included
         # headers, pre-define that header's include guard so the header body is
         # skipped — preventing a "conflicting types" error caused by the duplicate
-        # typedef declaration.  When pre-defining the guard also skips other types
-        # used by the source (e.g. Point), COMPILE_FLAGS force-includes a generated
-        # supplement header that restores exactly those missing type definitions.
+        # typedef declaration.  COMPILE_FLAGS force-includes any headers needed to
+        # restore types that would otherwise be missing: a generated supplement
+        # header for types skipped along with the header guard, and any standard C
+        # headers (e.g. <limits.h>) used by the source file but not explicitly
+        # included in it.
         set_source_files_properties(${sourceFileName} PROPERTIES
             LANGUAGE C${guardDefsLine}${compileFlagsLine})
 
@@ -146,9 +151,9 @@ export class CMakeGenerator {
     /**
      * Generate complete CMakeLists.txt with instructions
      */
-    static generateWithInstructions(testFileName: string, sourceFileName: string, conflictGuards: string[] = [], supplementHeader: string | null = null): string {
+    static generateWithInstructions(testFileName: string, sourceFileName: string, conflictGuards: string[] = [], forceIncludes: string[] = []): string {
         const instructions = this.generateBuildInstructions(testFileName);
-        const cmake = this.generate(testFileName, sourceFileName, conflictGuards, supplementHeader);
+        const cmake = this.generate(testFileName, sourceFileName, conflictGuards, forceIncludes);
         
         return instructions + '\n' + cmake;
     }
