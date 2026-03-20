@@ -1121,13 +1121,21 @@ export class ExpectedValuesWebview {
             const baseType = type.replace(/\s*\*+\s*$/, '').trim();
             const isCharPtr = this.normalizeBaseType(baseType) === 'char';
             if (isCharPtr) {
-                // char*/const char* → emit a direct string-literal declaration.
-                // e.g. const char* str = "Hello World";
+                // NULL / nullptr → pass through as-is (compatible with both char* and const char*)
                 if (value.trim() === 'NULL' || value.trim() === 'nullptr') {
-                    return `const char* ${name} = ${value.trim()}`;
+                    return `${type} ${name} = ${value.trim()}`;
                 }
                 const strLit = this.asStringLiteral(value);
-                return `const char* ${name} = ${strLit}`;
+                // If the original type is const-qualified, a pointer-to-string-literal is fine.
+                // If it is plain (mutable) char*, we must use a writable char[] buffer so that
+                // the variable decays to char* without a const-correctness violation.
+                const isConst = /\bconst\b/.test(type);
+                if (isConst) {
+                    return `${type} ${name} = ${strLit}`;
+                } else {
+                    // char name[] = "value";  — mutable array, decays to char*
+                    return `char ${name}[] = ${strLit}`;
+                }
             }
             // e.g. "int *" → int data_val = 5; int * data = &data_val;
             return `${baseType} ${name}_val = ${value};\n    ${type} ${name} = &${name}_val`;
