@@ -51,7 +51,7 @@ export class ExpectedValuesWebview {
 
                     switch (message.command) {
                         case 'save': {
-                            await this.saveExpectedValues(testFilePath, message.values, message.disabledTests || []);
+                            await this.saveExpectedValues(testFilePath, message.values, message.disabledTests || [], returnType);
                             await this.saveCustomTests(testFilePath, functionName, params, returnType, message.customTests || []);
                             resolved = true;
                             panel.dispose();
@@ -61,7 +61,7 @@ export class ExpectedValuesWebview {
                             return;
                         }
                         case 'saveOnly': {
-                            await this.saveExpectedValues(testFilePath, message.values, message.disabledTests || []);
+                            await this.saveExpectedValues(testFilePath, message.values, message.disabledTests || [], returnType);
                             await this.saveCustomTests(testFilePath, functionName, params, returnType, message.customTests || []);
                             resolved = true;
                             panel.dispose();
@@ -110,6 +110,13 @@ export class ExpectedValuesWebview {
                 return `${pv.name} = ${this.escapeHtml(pv.value)}`;
             }).join(', ') || 'No parameters'
         );
+        const rt = returnType.trim().toLowerCase();
+        const isFloatReturn  = rt === 'float';
+        const isDoubleReturn = rt === 'double';
+        const isFloatingPoint = isFloatReturn || isDoubleReturn;
+        const expectedPlaceholder = isFloatingPoint
+            ? "e.g., 1.5f, 0.0f, INFINITY, NAN, or 'skip'"
+            : "e.g., 42, -100, 0.5, 'overflow', 'undefined', or 'skip'";
         const testCaseHtml = testCases.map((tc, index) => `
             <div class="test-case" id="test-case-${index}">
                 <div class="test-header">
@@ -142,7 +149,7 @@ export class ExpectedValuesWebview {
                         type="text" 
                         id="expected-${index}" 
                         class="expected-input"
-                        placeholder="e.g., 42, -100, 0.5, 'overflow', 'undefined', or 'skip'"
+                        placeholder="${expectedPlaceholder}"
                         data-test-index="${index}"
                     />
                 </div>
@@ -520,8 +527,12 @@ export class ExpectedValuesWebview {
         <p style="color: var(--vscode-descriptionForeground); margin-bottom: 15px;">
             💡 <strong>Tip:</strong> The <em>Inputs</em> shown for each test are pre-generated and read-only.
             Fill in the <strong>Expected return value</strong> of <code>${this.escapeHtml(functionName)}()</code> for that set of inputs
-            (e.g., <code>42</code>, <code>-1.5</code>, <code>0</code>),
-            or use keywords: <code>overflow</code>, <code>undefined</code>, <code>skip</code>.
+            ${isFloatingPoint
+                ? `(e.g., <code>1.5f</code>, <code>0.0f</code>, <code>INFINITY</code>, <code>NAN</code>),
+            or use keyword: <code>skip</code>.
+            <em>Note: float/double arithmetic is always well-defined in IEEE 754 (producing INFINITY, NAN, etc.) — use these actual expected values instead of <code>overflow</code>.</em>`
+                : `(e.g., <code>42</code>, <code>-1.5</code>, <code>0</code>),
+            or use keywords: <code>overflow</code>, <code>undefined</code>, <code>skip</code>.`}
             Uncheck a test to exclude it from the saved file.
         </p>
         <div style="margin-bottom: 15px; padding: 10px; background: var(--vscode-textCodeBlock-background); border-radius: 4px;">
@@ -859,7 +870,8 @@ export class ExpectedValuesWebview {
     private static async saveExpectedValues(
         testFilePath: string,
         values: Array<{ index: number; value: string }>,
-        disabledTests: number[] = []
+        disabledTests: number[] = [],
+        returnType: string = ''
     ): Promise<void> {
 
         try {
@@ -921,17 +933,25 @@ export class ExpectedValuesWebview {
                     if (valueEntry && i + 1 < lines.length && lines[i + 1].includes('FAIL()')) {
                         const indent = lines[i + 1].match(/^\s*/)?.[0] || '    ';
                         const trimmedValue = valueEntry.value.trim().toLowerCase();
+                        const rt = returnType.trim().toLowerCase();
+                        const isFloatReturn  = rt === 'float';
+                        const isDoubleReturn = rt === 'double';
+                        const assertMacro = isFloatReturn  ? 'EXPECT_FLOAT_EQ'
+                                          : isDoubleReturn ? 'EXPECT_DOUBLE_EQ'
+                                          :                  'EXPECT_EQ';
 
-                        if (trimmedValue === 'overflow') {
+                        if (trimmedValue === 'overflow' && !isFloatReturn && !isDoubleReturn) {
                             lines[i] = `${indent}// Expected: Overflow behavior`;
                             lines[i + 1] = `${indent}SUCCEED() << "Overflow case - result: " << result;`;
                         } else if (trimmedValue === 'undefined' || trimmedValue === 'ub') {
                             lines[i] = `${indent}// Expected: Undefined behavior`;
                             lines[i + 1] = `${indent}SUCCEED() << "Undefined behavior case - result: " << result;`;
-                        } else if (trimmedValue === 'skip' || trimmedValue === '') {
+                        } else if (trimmedValue === 'skip' || trimmedValue === '' || trimmedValue === 'overflow') {
+                            // 'overflow' for float/double is treated as skip — IEEE 754 arithmetic is
+                            // always well-defined; the user should provide the actual value instead.
                             continue;
                         } else {
-                            lines[i] = `${indent}EXPECT_EQ(result, ${valueEntry.value});`;
+                            lines[i] = `${indent}${assertMacro}(result, ${valueEntry.value});`;
                             lines.splice(i + 1, 1);
                         }
                     }
@@ -1010,6 +1030,11 @@ export class ExpectedValuesWebview {
 
                 const resultType = returnType.trim() || 'int';
                 const isVoid = resultType.toLowerCase() === 'void';
+                const isFloat  = resultType.toLowerCase() === 'float';
+                const isDouble = resultType.toLowerCase() === 'double';
+                const customAssertMacro = isFloat  ? 'EXPECT_FLOAT_EQ'
+                                        : isDouble ? 'EXPECT_DOUBLE_EQ'
+                                        :            'EXPECT_EQ';
                 const paramCallArgs = params.map(p => p.name).join(', ');
                 customTestsCode += '\n    // Act\n';
                 if (isVoid) {
@@ -1030,7 +1055,7 @@ export class ExpectedValuesWebview {
                         customTestsCode += `    FAIL() << "Expected side-effect assertion needed for ${functionName}()";\n`;
                     }
                 } else {
-                    customTestsCode += `    EXPECT_EQ(result, ${expectedValue});\n`;
+                    customTestsCode += `    ${customAssertMacro}(result, ${expectedValue});\n`;
                 }
                 customTestsCode += '}\n\n';
             }

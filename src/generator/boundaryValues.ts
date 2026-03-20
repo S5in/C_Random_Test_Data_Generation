@@ -199,10 +199,13 @@ const BOUNDARY_CATALOG: Record<string, BoundaryValue[]> = {
         { label: 'maximum-minus-epsilon', literal: '(FLT_MAX - FLT_EPSILON)',  requiresHeader: 'cfloat' },
         { label: 'maximum',               literal: 'FLT_MAX',                 requiresHeader: 'cfloat' },
         { label: 'zero',                  literal: '0.0f' },
+        { label: 'negative-zero',         literal: '-0.0f' },
         { label: 'near-zero-positive',    literal: 'FLT_EPSILON',             requiresHeader: 'cfloat' },
         { label: 'near-zero-negative',    literal: '-FLT_EPSILON',            requiresHeader: 'cfloat' },
-        { label: 'positive-infinity',     literal: 'std::numeric_limits<float>::infinity()',   requiresHeader: 'limits' },
-        { label: 'negative-infinity',     literal: '-std::numeric_limits<float>::infinity()',  requiresHeader: 'limits' },
+        { label: 'smallest-positive',     literal: 'FLT_MIN',                 requiresHeader: 'cfloat' },
+        { label: 'positive-infinity',     literal: 'std::numeric_limits<float>::infinity()',            requiresHeader: 'limits' },
+        { label: 'negative-infinity',     literal: '-std::numeric_limits<float>::infinity()',           requiresHeader: 'limits' },
+        { label: 'nan',                   literal: 'std::numeric_limits<float>::quiet_NaN()',           requiresHeader: 'limits' },
     ],
 
     'double': [
@@ -212,10 +215,13 @@ const BOUNDARY_CATALOG: Record<string, BoundaryValue[]> = {
         { label: 'maximum-minus-epsilon', literal: '(DBL_MAX - DBL_EPSILON)',  requiresHeader: 'cfloat' },
         { label: 'maximum',               literal: 'DBL_MAX',                 requiresHeader: 'cfloat' },
         { label: 'zero',                  literal: '0.0' },
+        { label: 'negative-zero',         literal: '-0.0' },
         { label: 'near-zero-positive',    literal: 'DBL_EPSILON',             requiresHeader: 'cfloat' },
         { label: 'near-zero-negative',    literal: '-DBL_EPSILON',            requiresHeader: 'cfloat' },
-        { label: 'positive-infinity',     literal: 'std::numeric_limits<double>::infinity()',  requiresHeader: 'limits' },
-        { label: 'negative-infinity',     literal: '-std::numeric_limits<double>::infinity()', requiresHeader: 'limits' },
+        { label: 'smallest-positive',     literal: 'DBL_MIN',                 requiresHeader: 'cfloat' },
+        { label: 'positive-infinity',     literal: 'std::numeric_limits<double>::infinity()',           requiresHeader: 'limits' },
+        { label: 'negative-infinity',     literal: '-std::numeric_limits<double>::infinity()',          requiresHeader: 'limits' },
+        { label: 'nan',                   literal: 'std::numeric_limits<double>::quiet_NaN()',          requiresHeader: 'limits' },
     ],
 
     'size_t': [
@@ -236,10 +242,11 @@ const STANDARD_CLASSES   = ['minimum', 'minimum-plus-one', 'maximum-minus-one', 
 const EXHAUSTIVE_CLASSES = [
     'minimum', 'minimum-plus-one', 'minimum-plus-epsilon',
     'null-terminator', 'printable',
-    'near-zero-negative', 'zero', 'near-zero-positive',
+    'near-zero-negative', 'zero', 'negative-zero', 'near-zero-positive',
     'typical',
+    'smallest-positive',
     'maximum-minus-epsilon', 'maximum-minus-one', 'maximum',
-    'positive-infinity', 'negative-infinity', 'overflow',
+    'positive-infinity', 'negative-infinity', 'nan', 'overflow',
 ];
 
 function getBoundaryClassesForDensity(density: TestDensity): string[] {
@@ -310,6 +317,8 @@ function sanitizeBoundaryLabel(label: string): string {
         .replace(/null-terminator/g,        'NullTerm')
         .replace(/near-zero-positive/g,     'NearZeroPos')
         .replace(/near-zero-negative/g,     'NearZeroNeg')
+        .replace(/negative-zero/g,          'NegZero')
+        .replace(/smallest-positive/g,      'SmallestPos')
         .replace(/positive-infinity/g,      'PosInf')
         .replace(/negative-infinity/g,      'NegInf')
         .replace(/array-size-zero/g,           'ArraySizeZero')
@@ -338,6 +347,7 @@ function sanitizeBoundaryLabel(label: string): string {
         .replace(/typical/g,  'Typical')
         .replace(/overflow/g, 'Overflow')
         .replace(/printable/g,'Printable')
+        .replace(/\bnan\b/g,  'NaN')
         .replace(/zero/g,     'Zero')
         .replace(/-/g, '_');
 }
