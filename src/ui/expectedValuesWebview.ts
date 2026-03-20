@@ -1072,6 +1072,31 @@ export class ExpectedValuesWebview {
         }
     }
     /**
+     * Normalize a C base type for comparison (strips const/volatile/whitespace only —
+     * NOT unsigned/signed, which are integral to the type's identity).
+     */
+    private static normalizeBaseType(t: string): string {
+        return t.replace(/\b(const|volatile)\b/g, '').trim().toLowerCase().replace(/\s+/g, ' ');
+    }
+
+    /**
+     * Wrap a user-supplied value in C double-quote string literal syntax if it
+     * is not already a valid C string literal.
+     * - Already quoted  →  left as-is            e.g. `"Hello"` → `"Hello"`
+     * - NULL / nullptr  →  left as-is
+     * - Otherwise       →  escaped & double-quoted e.g. `Hello World` → `"Hello World"`
+     */
+    private static asStringLiteral(value: string): string {
+        const v = value.trim();
+        if (v === 'NULL' || v === 'nullptr') { return v; }
+        // Already a double-quoted string literal
+        if (/^".*"$/s.test(v)) { return v; }
+        // Escape backslashes then double-quotes within the value
+        const escaped = v.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+        return `"${escaped}"`;
+    }
+
+    /**
      * Build a C++ parameter declaration for a custom test Arrange section.
      * Handles array, pointer, struct, and primitive types correctly.
      */
@@ -1079,16 +1104,32 @@ export class ExpectedValuesWebview {
         const type = param.type.trim();
         const name = param.name;
         if (isArrayType(type)) {
-            // e.g. "int[]" or "int[10]" → int arr[] = {5, 4};
             const baseType = type.replace(/\[.*\]/, '').trim();
+            const isCharArray = this.normalizeBaseType(baseType) === 'char';
+            if (isCharArray) {
+                // char name[] = "Hello World";  (string literal initializer)
+                const strLit = this.asStringLiteral(value);
+                return `char ${name}[] = ${strLit}`;
+            }
+            // e.g. "int[]" or "int[10]" → int arr[] = {5, 4};
             // Wrap value in braces if not already wrapped
             const braceValue = /^\s*\{/.test(value)
                 ? value
                 : `{${value.split(',').map(v => v.trim()).join(', ')}}`;
             return `${baseType} ${name}[] = ${braceValue}`;
         } else if (isPointerType(type)) {
-            // e.g. "int *" → int data_val = 5; int * data = &data_val;
             const baseType = type.replace(/\s*\*+\s*$/, '').trim();
+            const isCharPtr = this.normalizeBaseType(baseType) === 'char';
+            if (isCharPtr) {
+                // char*/const char* → emit a direct string-literal declaration.
+                // e.g. const char* str = "Hello World";
+                if (value.trim() === 'NULL' || value.trim() === 'nullptr') {
+                    return `const char* ${name} = ${value.trim()}`;
+                }
+                const strLit = this.asStringLiteral(value);
+                return `const char* ${name} = ${strLit}`;
+            }
+            // e.g. "int *" → int data_val = 5; int * data = &data_val;
             return `${baseType} ${name}_val = ${value};\n    ${type} ${name} = &${name}_val`;
         } else if (isStructType(type)) {
             // Ensure aggregate initializer syntax: {x, y}
