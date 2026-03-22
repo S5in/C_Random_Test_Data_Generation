@@ -65,6 +65,7 @@ The extension itself installs with **zero dependencies** — just install and go
 ### Installation by OS
 <details>
 <summary><strong>🐧 Ubuntu / Debian (including WSL)</strong></summary>
+
 ```bash
 sudo apt update
 sudo apt install -y build-essential cmake libgtest-dev
@@ -75,18 +76,23 @@ sudo make
 sudo cp lib/*.a /usr/lib/
 ```
 </details>
+
 <details>
 <summary><strong>🍎 macOS</strong></summary>
+
 ```bash
 brew install cmake googletest
 ```
 </details>
+
 <details>
 <summary><strong>🪟 Windows (with WSL — recommended)</strong></summary>
+
 1. Install [WSL](https://learn.microsoft.com/en-us/windows/wsl/install): `wsl --install`
 2. Inside WSL, follow the Ubuntu instructions above
 3. Open your project in VS Code with the [Remote - WSL](https://marketplace.visualstudio.com/items?itemName=ms-vscode-remote.remote-wsl) extension
 </details>
+
 ### ✅ Verify your setup
 Open a terminal and run:
 ```bash
@@ -130,6 +136,7 @@ After generation, a popup offers three choices:
 - **Fill Expected Values** — Opens the full webview panel (see below)
 - **Build & Run** — Skips the webview and immediately builds and runs the tests
 - **View Tests** — Opens the generated test file directly in the editor
+
 Choosing **Fill Expected Values** opens a rich webview panel with three tabs:
 - **🧪 Boundary Tests** — All auto-generated test cases displayed as cards. Each card shows the test name, read-only input values, and an **Expected result** field. Use the checkbox on each card to include or exclude it, or toggle **Select/Deselect All** at the top.
   - Enter a **numeric value** (e.g., `42`, `-100`, `0.5`)
@@ -137,7 +144,9 @@ Choosing **Fill Expected Values** opens a rich webview panel with three tabs:
   - Leave blank to keep the `FAIL()` placeholder and fill in manually later
 - **➕ Custom Tests** — Add your own test cases with custom parameter values and expected results. Struct parameters get per-field inputs. Remove any custom test with the ✖ button.
 - **👁️ Preview** — See the full generated C++ test file with syntax highlighting before saving.
+
 A **stats bar** at the top tracks: *Tests generated / Selected / Custom*.
+
 When you're ready, click one of three buttons:
 | Button | What it does |
 |--------|--------------|
@@ -147,6 +156,7 @@ When you're ready, click one of three buttons:
 ### Step 5: Build & Run
 Build and run can happen automatically (from the popup or webview), or you can trigger it manually at any time:
 - Command Palette (`Ctrl+Shift+P`) → **"C Test Generator: Build & Run Tests"**
+
 The **"C Test Generator" output channel** shows the full build log and test results. Any build errors are also surfaced in the **VS Code Problems panel** with clickable file + line info.
 ---
 ## 🧪 Example
