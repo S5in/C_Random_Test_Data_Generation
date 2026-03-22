@@ -336,6 +336,8 @@ function sanitizeBoundaryLabel(label: string): string {
         .replace(/struct-zero-init/g,          'StructZero')
         .replace(/struct-min-values/g,         'StructMin')
         .replace(/struct-extreme-values/g,  'StructExtreme')
+        .replace(/pointer-to-empty-string/g, 'PointerToEmptyString')
+        .replace(/pointer-to-string/g,       'PointerToString')
         .replace(/null-pointer/g,           'NullPointer')
         .replace(/pointer-to-zero/g,        'PointerToZero')
         .replace(/pointer-to-min/g,         'PointerToMin')
@@ -374,10 +376,24 @@ interface ComplexEntry {
     headers: string[];
     /** For array entries: the correlated size parameter value */
     pairedSizeValue?: string;
+    /**
+     * When set, the generated BoundarySet emits GTEST_SKIP() instead of calling
+     * the function.  Used to document unsafe boundary cases (e.g. null string
+     * pointers that crash functions without a NULL guard).
+     */
+    skipReason?: string;
 }
 
 function pointerEntriesForParam(param: FunctionParameter): ComplexEntry[] {
     const base = pointerBaseType(param.type);
+    const normalizedBase = normalizeType(base);
+
+    // `char*` and `const char*` are C string pointers.  They need special treatment:
+    //  • null-pointer → skip (most string functions crash on NULL without a guard)
+    //  • no boundary catalog entries exist for `const char` → use a null-terminated
+    //    array literal so that string-iterating functions can read safely
+    const isCharPointer = normalizedBase === 'char' || normalizedBase === 'const char';
+
     const boundaries = getBoundaryValues(base);
 
     const entries: ComplexEntry[] = [
@@ -387,6 +403,12 @@ function pointerEntriesForParam(param: FunctionParameter): ComplexEntry[] {
             declaration: `${param.type} ${param.name} = NULL`,
             preamble: null,
             headers: ['cstddef'],
+            // Skip rather than crash: most string/buffer functions do not guard against
+            // NULL and will segfault.  Remove the GTEST_SKIP() if your function handles it.
+            ...(isCharPointer ? {
+                skipReason: `NULL ${param.type} — most string functions crash when passed NULL; ` +
+                    `add a null guard to your function and remove GTEST_SKIP() to enable this test`,
+            } : {}),
         },
     ];
 
@@ -411,16 +433,37 @@ function pointerEntriesForParam(param: FunctionParameter): ComplexEntry[] {
         }
     }
 
-    // Fallback: if no boundary values matched (unsupported base type), add one valid-pointer
+    // Fallback: if no boundary values matched (unsupported base type), add representative entries.
     if (entries.length === 1) {
-        const defaultVal = getSafeDefaultForType(base);
-        entries.push({
-            label: 'valid-pointer',
-            value: `&${param.name}_val`,
-            declaration: `${param.type} ${param.name} = &${param.name}_val`,
-            preamble: `${base} ${param.name}_val = ${defaultVal}`,
-            headers: [],
-        });
+        if (isCharPointer) {
+            // For C string pointers (char*/const char*): generate null-terminated array
+            // literals so that string-iterating functions don't read past the end of the
+            // buffer.  A single bare char like `'a'` has no null terminator and causes
+            // undefined behaviour when passed to functions like count_char/strlen.
+            entries.push({
+                label: 'pointer-to-empty-string',
+                value: `${param.name}_val`,
+                declaration: `${param.type} ${param.name} = ${param.name}_val`,
+                preamble: `${base} ${param.name}_val[] = ""`,
+                headers: [],
+            });
+            entries.push({
+                label: 'pointer-to-string',
+                value: `${param.name}_val`,
+                declaration: `${param.type} ${param.name} = ${param.name}_val`,
+                preamble: `${base} ${param.name}_val[] = "hello"`,
+                headers: [],
+            });
+        } else {
+            const defaultVal = getSafeDefaultForType(base);
+            entries.push({
+                label: 'valid-pointer',
+                value: `&${param.name}_val`,
+                declaration: `${param.type} ${param.name} = &${param.name}_val`,
+                preamble: `${base} ${param.name}_val = ${defaultVal}`,
+                headers: [],
+            });
+        }
     }
 
     return entries;
@@ -464,13 +507,19 @@ function makeComboArrayInfo(
 
 /**
  * Create a canonical key for a BoundarySet used to detect duplicates.
+ * Both the parameter declaration AND its preamble (which holds the pointed-to
+ * value for pointer parameters) are included so that tests that differ only
+ * in their preamble (e.g. pointer-to-zero vs pointer-to-max) are not falsely
+ * merged.
  */
 function getBoundarySetKey(set: BoundarySet): string {
     const parts: string[] = [];
     const n = set.values.length;
     for (let i = 0; i < n; i++) {
         const decl = set.paramDeclarations?.[i];
-        parts.push((decl !== undefined && decl !== null) ? decl : set.values[i]);
+        const pre  = set.paramPreambles?.[i];
+        const core = (decl !== undefined && decl !== null) ? decl : set.values[i];
+        parts.push(pre ? `${pre}|${core}` : core);
     }
     return parts.join('||');
 }
@@ -709,6 +758,19 @@ interface NominalEntry {
 
 function getNominalEntry(p: FunctionParameter, structs: StructInfo[] = []): NominalEntry {
     if (isPointerType(p.type)) {
+        const base = pointerBaseType(p.type);
+        const normalizedBase = normalizeType(base);
+        // For C string pointers use an empty null-terminated array as the nominal value
+        // so that other-parameter boundary tests can safely call the function (most
+        // string functions crash when passed NULL).
+        if (normalizedBase === 'char' || normalizedBase === 'const char') {
+            return {
+                value: `${p.name}_val`,
+                declaration: `${p.type} ${p.name} = ${p.name}_val`,
+                preamble: `${base} ${p.name}_val[] = ""`,
+                headers: [],
+            };
+        }
         return {
             value: 'NULL',
             declaration: `${p.type} ${p.name} = NULL`,
@@ -898,6 +960,7 @@ export function generateBoundarySets(
                     requiredHeaders: Array.from(headers),
                     paramPreambles: preambles,
                     paramDeclarations: declarations,
+                    ...(entry.skipReason ? { skipReason: entry.skipReason } : {}),
                 });
             }
             continue;
