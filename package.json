@@ -4,6 +4,13 @@
   "description": "Automatically generates Google Test test cases for C functions using boundary value analysis. Right-click a function → get tests.",
   "version": "2.0.0",
   "publisher": "S5in",
+  "icon": "images/icon.png",
+  "license": "SEE LICENSE IN LICENSE.txt",
+  "keywords": ["C", "testing", "boundary value analysis", "google test", "test generation"],
+  "galleryBanner": {
+    "color": "#1e1e1e",
+    "theme": "dark"
+  },
   "repository": {
     "type": "git",
     "url": "https://github.com/S5in/C_Random_Test_Data_Generation"
