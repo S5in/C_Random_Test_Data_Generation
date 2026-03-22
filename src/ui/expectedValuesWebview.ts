@@ -1097,6 +1097,28 @@ export class ExpectedValuesWebview {
     }
 
     /**
+     * Wrap a user-supplied value in C single-quote character literal syntax if it
+     * is not already a valid C character literal or numeric value.
+     * - Already single-quoted  →  left as-is  e.g. `'y'` → `'y'`, `'\n'` → `'\n'`
+     * - Numeric literal        →  left as-is  e.g. `65` → `65`
+     * - Otherwise              →  escape backslashes & single quotes, then wrap
+     *                             e.g. `y` → `'y'`,  `\` → `'\\'`
+     *   (Users who need C escape sequences should enter them pre-quoted, e.g. `'\n'`)
+     */
+    private static asCharLiteral(value: string): string {
+        const v = value.trim();
+        // Already a single-quoted character literal: 'x', '\n', '\0', '\xAB', etc.
+        if (/^'(?:[^'\\]|\\.)*'$/.test(v)) { return v; }
+        // Numeric literal (decimal or hex): 65, 0x41, -1, etc.
+        if (/^-?\d+$/.test(v) || /^0[xX][0-9a-fA-F]+$/.test(v)) { return v; }
+        // Bare character: escape backslashes then single quotes so the result is a
+        // well-formed C character literal (a lone `\` would otherwise produce `'\'`
+        // which is an unclosed literal).
+        const escaped = v.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+        return `'${escaped}'`;
+    }
+
+    /**
      * Build a C++ parameter declaration for a custom test Arrange section.
      * Handles array, pointer, struct, and primitive types correctly.
      */
@@ -1152,6 +1174,13 @@ export class ExpectedValuesWebview {
             return `${type} ${name} = ${safeValue}`;
         } else {
             // Primitive: int, float, double, char, size_t, etc.
+            // For plain `char`, wrap bare values in single-quote literals so that
+            // user-entered values like `y` emit `char target = 'y';` rather than
+            // the invalid `char target = y;`.
+            const isCharPrimitive = this.normalizeBaseType(type) === 'char';
+            if (isCharPrimitive) {
+                return `${type} ${name} = ${this.asCharLiteral(value)}`;
+            }
             return `${type} ${name} = ${value}`;
         }
     }
