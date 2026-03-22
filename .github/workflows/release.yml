@@ -1,0 +1,64 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag (e.g. v2.0.0)'
+        required: true
+
+jobs:
+  build-and-release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Package extension
+        run: npx @vscode/vsce package --no-dependencies
+
+      - name: Get package info
+        id: pkg
+        run: |
+          NAME=$(node -p "require('./package.json').name")
+          VERSION=$(node -p "require('./package.json').version")
+          echo "vsix=${NAME}-${VERSION}.vsix" >> "$GITHUB_OUTPUT"
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+          name: v${{ steps.pkg.outputs.version }}
+          body: |
+            ## 📦 Download
+
+            Download **`${{ steps.pkg.outputs.vsix }}`** from the assets below and install it in VS Code:
+
+            ```bash
+            code --install-extension ${{ steps.pkg.outputs.vsix }}
+            ```
+
+            Or go to the **Extensions** sidebar → `⋯` menu → **Install from VSIX...** and select the downloaded file.
+
+            ---
+
+            See [CHANGELOG.md](https://github.com/S5in/C_Random_Test_Data_Generation/blob/main/CHANGELOG.md) for what's new.
+          files: ${{ steps.pkg.outputs.vsix }}
+          draft: false
+          prerelease: false

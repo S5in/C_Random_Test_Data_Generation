@@ -147,6 +147,16 @@ If both commands work, you're ready to go.
 code --install-extension S5in.random-test-data-generation
 ```
 
+### From GitHub Releases (.vsix)
+
+If you prefer a direct download or are working offline:
+
+1. Go to the [**Releases page**](https://github.com/S5in/C_Random_Test_Data_Generation/releases)
+2. Download the latest `.vsix` file (e.g. `random-test-data-generation-2.0.0.vsix`)
+3. Install it in one of two ways:
+   - **Terminal:** `code --install-extension random-test-data-generation-2.0.0.vsix`
+   - **Extensions sidebar:** Click the `⋯` menu (top-right) → **Install from VSIX...** → select the file
+
 ---
 
 ## 📖 How to Use
