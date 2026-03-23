@@ -1,4 +1,4 @@
-# C Test Generator – Boundary Value Analysis (v2.0.0)
+# C Test Generator – Boundary Value Analysis (v2.0.1)
 A VS Code extension that **automatically generates Google Test (GTest) test cases** for your C functions using **Boundary Value Analysis (BVA)**.
 Right-click any C function → get a full set of boundary tests instantly. No test-writing boilerplate.
 ---
@@ -14,6 +14,7 @@ Right-click any C function → get a full set of boundary tests instantly. No te
 - **Preview tab** — See the full generated C++ test code with syntax highlighting before saving
 - **Test checkboxes** — Select/deselect individual test cases before saving; unchecked tests are commented out
 - **CMake integration** — Automatically generates `CMakeLists.txt` alongside your tests
+- **Automatic `main()` handling** — Source files with a `main()` function are automatically handled; the extension renames it at compile time so GoogleTest's entry point works correctly
 - **Build & Run** — Build and execute tests directly from VS Code with one click
 - **VS Code Problems panel** — Build errors from g++/cmake are parsed and shown with file/line info
 - **Output Channel logging** — All extension activity appears in the "C Test Generator" output panel
@@ -220,8 +221,11 @@ TEST(derefTest, Param_ptr_ValidPointer) {
 - **C files only** — The extension activates only for `.c` files. It generates `.cpp` test files (Google Test is C++).
 - **CMakeLists.txt is overwritten** — Each time you generate tests, the `CMakeLists.txt` in that directory is regenerated. If you've customized it, back it up first.
 - **Functions with 7+ parameters** — The extension will warn you about large parameter counts (exponential test combinations). Consider refactoring to use structs.
+- **Files with `main()`** — If your `.c` file has a `main()` function, the extension automatically handles the conflict with GoogleTest's entry point. No manual changes needed.
 ---
 ## 📦 Release Notes
+### 2.0.1 — Patch
+- Automatic `main()` conflict resolution: source files containing `main()` no longer conflict with GoogleTest's entry point
 ### 2.0.0 — Iteration 2
 - Pointer, array & struct parameter support
 - Smarter boundary values (`size_t`, `char` null/printable, `float`/`double` infinity, overflow)

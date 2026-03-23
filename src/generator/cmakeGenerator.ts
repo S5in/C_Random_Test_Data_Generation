@@ -14,7 +14,7 @@ export class CMakeGenerator {
      * @param sourceFileName - Name of the source .c file (e.g., "math.c")
      * @returns CMakeLists.txt content
      */
-        static generate(testFileName: string, sourceFileName: string, conflictGuards: string[] = [], forceIncludes: string[] = []): string {
+        static generate(testFileName: string, sourceFileName: string, conflictGuards: string[] = [], forceIncludes: string[] = [], hasMainFunction: boolean = false): string {
         const projectName = this.getProjectName(sourceFileName);
         const executableName = this.getExecutableName(testFileName);
 
@@ -31,8 +31,13 @@ export class CMakeGenerator {
         //          that the source uses but does not redefine inline (e.g. Point).
         //       b. Standard C headers used by the source (e.g. <limits.h> for INT_MIN)
         //          that the source file omitted are injected so the build does not fail.
-        const guardDefsLine = conflictGuards.length > 0
-            ? `\n            COMPILE_DEFINITIONS "${conflictGuards.join(';')}"` : '';
+        // Merge all compile definitions: header conflict guards + main rename
+        const allGuards = [...conflictGuards];
+        if (hasMainFunction) {
+            allGuards.push('main=__original_main');
+        }
+        const guardDefsLine = allGuards.length > 0
+            ? `\n            COMPILE_DEFINITIONS "${allGuards.join(';')}"` : '';
         const compileFlagsLine = forceIncludes.length > 0
             ? `\n            COMPILE_FLAGS "${forceIncludes.map(h => `-include ${h}`).join(' ')}"` : '';
         return `cmake_minimum_required(VERSION 3.14)
@@ -149,9 +154,9 @@ export class CMakeGenerator {
     /**
      * Generate complete CMakeLists.txt with instructions
      */
-    static generateWithInstructions(testFileName: string, sourceFileName: string, conflictGuards: string[] = [], forceIncludes: string[] = []): string {
+    static generateWithInstructions(testFileName: string, sourceFileName: string, conflictGuards: string[] = [], forceIncludes: string[] = [], hasMainFunction: boolean = false): string {
         const instructions = this.generateBuildInstructions(testFileName);
-        const cmake = this.generate(testFileName, sourceFileName, conflictGuards, forceIncludes);
+        const cmake = this.generate(testFileName, sourceFileName, conflictGuards, forceIncludes, hasMainFunction);
         
         return instructions + '\n' + cmake;
     }
