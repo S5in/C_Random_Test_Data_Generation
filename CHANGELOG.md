@@ -4,6 +4,14 @@ All notable changes to the "random-test-data-generation" extension will be docum
 
 Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how to structure this file.
 
+## [2.0.1] — 2026-03-23
+### Fixed
+- **Automatic `main()` conflict resolution** — When the user's `.c` file contains a `main()` function,
+  the extension now automatically renames it via `-Dmain=__original_main` in the generated CMake
+  configuration. This prevents the user's `main()` from conflicting with GoogleTest's `main()` entry
+  point (`GTest::Main`). The user's source file is never modified — the rename happens at the
+  preprocessor level for the C source compilation unit only.
+
 ## [2.0.0] — 2026-03-09
 ### Added — Goal 1: Support more C data types
 - **Pointer parameters** (`int *ptr`, `float *arr`) — parser now includes the `*` in the extracted

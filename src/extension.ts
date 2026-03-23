@@ -5,7 +5,7 @@
  * Generates Google Test test cases for C functions with boundary value analysis.
  * Focus: Single function at a time - real developer workflow.
  *
- * v2.0.0: struct/array/pointer support, smarter BVA, preview UI, diagnostics.
+ * v2.0.1: struct/array/pointer support, smarter BVA, preview UI, diagnostics.
  */
 
 import * as vscode from 'vscode';
@@ -647,11 +647,19 @@ async function generateTestForCurrentFunction(parser: any): Promise<{
         ...missingIncludes,
         ...(supplement ? [supplement.fileName] : [])
     ];
+    // Detect if the source file has a main() function that would conflict
+    // with GoogleTest's main entry point provided by GTest::Main.
+    const allFunctions = FunctionExtractor.extractFunctions(tree);
+    const hasMainFunction = allFunctions.some(f => f.name === 'main');
+    if (hasMainFunction) {
+        buildRunner.log('Detected main() in source — will rename via -Dmain=__original_main to avoid GTest conflict');
+    }
     const cmakeContent = CMakeGenerator.generateWithInstructions(
         testFileName,
         sourceFileName,
         conflictGuards,
-        forceIncludes
+        forceIncludes,
+        hasMainFunction
     );
 
     // ========================================
