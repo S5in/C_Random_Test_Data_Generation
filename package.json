@@ -2,7 +2,7 @@
   "name": "random-test-data-generation",
   "displayName": "Random Test Data Generation",
   "description": "Automatically generates Google Test test cases for C functions using boundary value analysis. Right-click a function → get tests.",
-  "version": "2.0.0",
+  "version": "2.0.1",
   "publisher": "S5in",
   "icon": "images/icon.png",
   "license": "SEE LICENSE IN LICENSE.txt",
