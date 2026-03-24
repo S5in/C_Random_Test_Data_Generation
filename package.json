@@ -2,7 +2,7 @@
   "name": "s5in-c-bva-test-generator",
   "displayName": "S5in C BVA Test Generator",
   "description": "Automatically generates Google Test test cases for C functions using boundary value analysis — by S5in. Right-click a function → get tests.",
-  "version": "2.0.1",
+  "version": "2.0.2",
   "publisher": "S5in",
   "icon": "images/icon.png",
   "license": "SEE LICENSE IN LICENSE.txt",
@@ -52,6 +52,20 @@
           "when": "resourceLangId == c",
           "command": "s5in-c-bva-test-generator.generateTest",
           "group": "testing@1"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "s5in-c-bva-test-generator.generateTest",
+          "when": "resourceLangId == c"
+        },
+        {
+          "command": "s5in-c-bva-test-generator.buildAndRun",
+          "when": "resourceLangId == c || resourceFilename =~ /_test\\.cpp$/"
+        },
+        {
+          "command": "s5in-c-bva-test-generator.cleanBuild",
+          "when": "resourceLangId == c || resourceFilename =~ /_test\\.cpp$/"
         }
       ]
     },

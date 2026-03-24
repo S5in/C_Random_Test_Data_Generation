@@ -729,8 +729,10 @@ async function generateTestForCurrentFunction(parser: any): Promise<{
     // ========================================
     const sourceFileName = path.basename(document.fileName);
     
-    // Read test density from configuration
-    const density = vscode.workspace.getConfiguration('s5inCBvaTestGenerator').get<TestDensity>('testDensity', 'standard');
+    // Read test density from configuration (support both new and legacy key names)
+    const density: TestDensity =
+        vscode.workspace.getConfiguration('s5inCBvaTestGenerator').get<TestDensity>('testDensity') ??
+        vscode.workspace.getConfiguration('cTestGenerator').get<TestDensity>('testDensity', 'standard');
     buildRunner.log(`Generating test code (density: ${density})...`);
     
     const { testCode, testCases } = TestGenerator.generateTestsWithCaseInfo(

@@ -4,6 +4,17 @@ All notable changes to the "random-test-data-generation" extension will be docum
 
 Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how to structure this file.
 
+## [2.0.2] — 2026-03-24
+### Fixed
+- **Duplicate "Generate Tests for This Function" in context menu** — Added explicit `menus.commandPalette`
+  entries to `package.json` to restrict each command to the relevant file context
+  (`resourceLangId == c`). Previously, commands appeared in multiple places because VS Code
+  included them in both the explicit `editor/context` entry and the default Command Palette inclusion.
+- **`cTestGenerator.testDensity` already-registered error** — Updated `CHANGELOG.md` to reference the
+  correct setting key (`s5inCBvaTestGenerator.testDensity`). Added backward-compatible fallback in
+  `extension.ts` so that users who still have `cTestGenerator.testDensity` set in their
+  `settings.json` will continue to get their configured density value after upgrading.
+
 ## [2.0.1] — 2026-03-23
 ### Fixed
 - **Automatic `main()` conflict resolution** — When the user's `.c` file contains a `main()` function,
@@ -32,7 +43,7 @@ Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how 
 - Fixed float/double assertion macros: `EXPECT_FLOAT_EQ` for `float` return types,
   `EXPECT_DOUBLE_EQ` for `double`.
 ### Added — Goal 3: Multiple test case generation
-- **`cTestGenerator.testDensity` VS Code setting** — three levels:
+- **`s5inCBvaTestGenerator.testDensity` VS Code setting** — three levels:
   - `minimal` — min, max, zero only (fewest tests)
   - `standard` — min, min+1, max-1, max BVA (default, same as v1 behaviour)
   - `exhaustive` — all boundary classes including near-zero, infinities, overflow
