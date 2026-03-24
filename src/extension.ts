@@ -472,22 +472,36 @@ export async function activate(context: vscode.ExtensionContext) {
 async function checkPrerequisites(runner: BuildRunner, interactive: boolean): Promise<void> {
     const execFileAsync = promisify(execFile);
 
-    /** Run a command directly, then fall back to a login shell if the direct call fails. */
+    /** Run a command directly, then fall back to a login shell, then (on Windows) to WSL. */
     async function execWithShellFallback(cmd: string, args: string[]): Promise<string> {
+        // 1. Try direct execution first (works when the tool is on the extension host PATH).
         try {
             const { stdout } = await execFileAsync(cmd, args);
             return stdout;
-        } catch {
-            // Fall back to a login shell so the user's PATH is available.
-            // cmd and args are hardcoded caller-controlled strings, not user input.
-            const isWindows = process.platform === 'win32';
+        } catch { /* fall through */ }
+
+        const isWindows = process.platform === 'win32';
+
+        // 2. Try via the login shell to pick up the user's PATH.
+        // cmd and args are hardcoded caller-controlled strings, not user input.
+        try {
             const shell = isWindows ? 'cmd.exe' : '/bin/sh';
-            const flag = isWindows ? '/c' : '-c';
-            // Pass cmd + args as a single shell string; all callers use hardcoded values.
+            const flag  = isWindows ? '/c'      : '-c';
             const shellCmd = [cmd, ...args].join(' ');
             const { stdout } = await execFileAsync(shell, [flag, shellCmd]);
             return stdout;
+        } catch { /* fall through */ }
+
+        // 3. On Windows, try via the default WSL distro.  This covers the common
+        //    case where VS Code runs as a native Windows app but the compiler/tools
+        //    are installed inside WSL (the extension host is a Win32 process and
+        //    cannot see the WSL PATH or filesystem directly).
+        if (isWindows) {
+            const { stdout } = await execFileAsync('wsl.exe', ['--', cmd, ...args]);
+            return stdout;
         }
+
+        throw new Error(`${cmd}: command not found`);
     }
 
     const results: string[] = [];
@@ -555,6 +569,23 @@ async function checkPrerequisites(runner: BuildRunner, interactive: boolean): Pr
     ];
     let gtestFound = gtestPaths.some(safeFileExists);
     let gtestFoundBy = gtestFound ? 'static path' : '';
+
+    // Method 1b: on Windows, fs.existsSync cannot reach the WSL virtual filesystem,
+    // so use wsl.exe to probe the same paths inside the default WSL distro.
+    if (!gtestFound && process.platform === 'win32') {
+        try {
+            const wslCheck = await execFileAsync('wsl.exe', [
+                '--', 'bash', '-c',
+                'ls /usr/lib/libgtest.a /usr/local/lib/libgtest.a' +
+                ' /usr/lib/x86_64-linux-gnu/libgtest.a' +
+                ' /usr/lib/aarch64-linux-gnu/libgtest.a 2>/dev/null | head -1',
+            ]);
+            if (wslCheck.stdout.trim()) {
+                gtestFound = true;
+                gtestFoundBy = 'WSL path check';
+            }
+        } catch { /* WSL not installed or GTest not in WSL */ }
+    }
 
     // Method 2: pkg-config
     if (!gtestFound) {
