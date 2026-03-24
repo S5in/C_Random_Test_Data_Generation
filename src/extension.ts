@@ -24,6 +24,9 @@ import { ExpectedValuesWebview } from './ui/expectedValuesWebview';
 import { TestDensity, setKnownStructNames, setKnownStructInfos } from './generator/boundaryValues';
 import { FunctionParameter, StructInfo } from './types';
 
+/** URL to the prerequisites section of the README (used in install-instructions link). */
+const PREREQUISITES_README_URL = 'https://github.com/S5in/C_Random_Test_Data_Generation#-prerequisites';
+
 let buildRunner: BuildRunner;
 
 /**
@@ -400,7 +403,7 @@ export async function activate(context: vscode.ExtensionContext) {
         // Command 3: Clean Build Directory
         // ========================================
         let cleanBuildCommand = vscode.commands.registerCommand(
-            'random-test-data-generation.cleanBuild',
+            's5in-c-bva-test-generator.cleanBuild',
             async () => {
                 try {
                     const editor = vscode.window.activeTextEditor;
@@ -421,12 +424,21 @@ export async function activate(context: vscode.ExtensionContext) {
             }
         );
         // ========================================
+        // Status Bar: Prerequisites
+        // ========================================
+        const prereqStatusBar = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
+        prereqStatusBar.text = '$(sync~spin) Prerequisites';
+        prereqStatusBar.tooltip = 'C Test Generator — click to check prerequisites';
+        prereqStatusBar.command = 's5in-c-bva-test-generator.checkPrerequisites';
+        prereqStatusBar.show();
+
+        // ========================================
         // Command 4: Check Prerequisites
         // ========================================
         let checkPrerequisitesCommand = vscode.commands.registerCommand(
             's5in-c-bva-test-generator.checkPrerequisites',
             async () => {
-                await checkPrerequisites(buildRunner, true);
+                await checkPrerequisites(buildRunner, true, prereqStatusBar);
             }
         );
         // Register all commands
@@ -434,10 +446,11 @@ export async function activate(context: vscode.ExtensionContext) {
         context.subscriptions.push(buildAndRunCommand);
         context.subscriptions.push(cleanBuildCommand);
         context.subscriptions.push(checkPrerequisitesCommand);
+        context.subscriptions.push(prereqStatusBar);
         context.subscriptions.push(buildRunner);
 
         // Run prerequisite check on activation (non-blocking, warnings only)
-        checkPrerequisites(buildRunner, false).catch(() => { /* ignore */ });
+        checkPrerequisites(buildRunner, false, prereqStatusBar).catch(() => { /* ignore */ });
 
         console.log('C Test Generator: Extension activated successfully');
 
@@ -452,15 +465,45 @@ export async function activate(context: vscode.ExtensionContext) {
 /**
  * Check prerequisites (g++, cmake ≥ 3.14, GTest) and report results.
  * @param runner BuildRunner instance for logging
- * @param interactive If true, shows info/error messages to the user; if false, only logs warnings
+ * @param interactive If true, shows a modal dialog to the user; if false, only logs warnings
+ * @param statusBarItem Optional status bar item to update with the result
  */
-async function checkPrerequisites(runner: BuildRunner, interactive: boolean): Promise<void> {
+async function checkPrerequisites(
+    runner: BuildRunner,
+    interactive: boolean,
+    statusBarItem?: vscode.StatusBarItem
+): Promise<boolean> {
     const execFileAsync = promisify(execFile);
+    const isWindows = process.platform === 'win32';
     const results: string[] = [];
     let allOk = true;
+
+    /**
+     * Run a command, falling back to a shell invocation so that the user's
+     * full PATH (set up by ~/.profile or /etc/environment) is used even when
+     * VS Code was not launched from a terminal.
+     *
+     * SAFETY: Only call this with hardcoded, trusted cmd and args values —
+     * never with user-supplied input — to avoid shell injection.
+     */
+    async function runWithShellFallback(cmd: string, args: string[]): Promise<string> {
+        try {
+            const { stdout } = await execFileAsync(cmd, args);
+            return stdout;
+        } catch {
+            // Fallback: delegate to the system shell so it picks up the user's PATH
+            const shellExe = isWindows ? 'cmd.exe' : '/bin/sh';
+            const shellArgs = isWindows
+                ? ['/c', `${cmd} ${args.join(' ')}`]
+                : ['-c', `${cmd} ${args.join(' ')}`];
+            const { stdout } = await execFileAsync(shellExe, shellArgs);
+            return stdout;
+        }
+    }
+
     // Check g++
     try {
-        const { stdout } = await execFileAsync('g++', ['--version']);
+        const stdout = await runWithShellFallback('g++', ['--version']);
         const versionLine = stdout.split('\n')[0].trim();
         results.push(`✅ g++: ${versionLine}`);
         runner.log(`Prerequisites: g++ found — ${versionLine}`);
@@ -469,9 +512,10 @@ async function checkPrerequisites(runner: BuildRunner, interactive: boolean): Pr
         results.push('❌ g++: Not found');
         runner.log('Prerequisites: g++ not found');
     }
+
     // Check cmake ≥ 3.14
     try {
-        const { stdout } = await execFileAsync('cmake', ['--version']);
+        const stdout = await runWithShellFallback('cmake', ['--version']);
         const match = stdout.match(/cmake version (\d+)\.(\d+)\.?(\d*)/i);
         if (match) {
             const major = parseInt(match[1], 10);
@@ -494,7 +538,8 @@ async function checkPrerequisites(runner: BuildRunner, interactive: boolean): Pr
         results.push('❌ CMake: Not found (3.14+ required)');
         runner.log('Prerequisites: CMake not found');
     }
-    // Check GTest: look for libgtest.a in common locations or via pkg-config
+
+    // Check GTest using multiple detection methods
     const gtestPaths = [
         '/usr/lib/libgtest.a',
         '/usr/lib/libgtest_main.a',
@@ -502,53 +547,134 @@ async function checkPrerequisites(runner: BuildRunner, interactive: boolean): Pr
         '/usr/local/lib/libgtest_main.a',
         '/usr/lib/x86_64-linux-gnu/libgtest.a',
         '/usr/lib/x86_64-linux-gnu/libgtest_main.a',
+        '/usr/lib/aarch64-linux-gnu/libgtest.a',
+        '/usr/lib/aarch64-linux-gnu/libgtest_main.a',
+        '/usr/lib/arm-linux-gnueabihf/libgtest.a',
+        '/usr/lib/arm-linux-gnueabihf/libgtest_main.a',
+        '/usr/lib64/libgtest.a',
+        '/usr/lib64/libgtest_main.a',
     ];
-    const gtestFound = gtestPaths.some(p => fs.existsSync(p));
-    if (gtestFound) {
-        results.push('✅ Google Test (GTest): Found');
-        runner.log('Prerequisites: GTest libraries found');
-    } else {
-        // Try pkg-config as a fallback
-        let pkgConfigOk = false;
+
+    let gtestFound = gtestPaths.some(p => fs.existsSync(p));
+    let gtestMethod = 'static path';
+
+    if (!gtestFound) {
+        // Fallback 1: pkg-config
         try {
             await execFileAsync('pkg-config', ['--libs', 'gtest']);
-            pkgConfigOk = true;
-        } catch { /* not found via pkg-config */ }
-        if (pkgConfigOk) {
-            results.push('✅ Google Test (GTest): Found via pkg-config');
-            runner.log('Prerequisites: GTest found via pkg-config');
-        } else {
-            allOk = false;
-            results.push('❌ Google Test (GTest): Not found — libgtest.a missing');
-            runner.log('Prerequisites: GTest not found');
-        }
+            gtestFound = true;
+            gtestMethod = 'pkg-config';
+        } catch { /* pkg-config not available or GTest not registered */ }
     }
+
+    if (!gtestFound) {
+        // Fallback 2: shell find across common lib directories
+        try {
+            const shellExe = isWindows ? 'cmd.exe' : '/bin/sh';
+            const findCmd = 'find /usr/lib /usr/local/lib /usr/lib64 -name "libgtest.a" 2>/dev/null | head -1';
+            const shellArgs = isWindows ? ['/c', findCmd] : ['-c', findCmd];
+            const { stdout } = await execFileAsync(shellExe, shellArgs);
+            if (stdout.trim().length > 0) {
+                gtestFound = true;
+                gtestMethod = 'find';
+            }
+        } catch { /* find command failed */ }
+    }
+
+    if (!gtestFound && !isWindows) {
+        // Fallback 3: dpkg (Debian/Ubuntu)
+        try {
+            const { stdout } = await execFileAsync('dpkg', ['-L', 'libgtest-dev']);
+            if (stdout.includes('libgtest')) {
+                gtestFound = true;
+                gtestMethod = 'dpkg';
+            }
+        } catch { /* dpkg not available or package not installed */ }
+    }
+
+    if (!gtestFound && process.platform === 'darwin') {
+        // Fallback 4: brew (macOS)
+        try {
+            await execFileAsync('brew', ['list', 'googletest']);
+            gtestFound = true;
+            gtestMethod = 'brew';
+        } catch { /* brew not available or googletest not installed */ }
+    }
+
+    if (!gtestFound) {
+        // Fallback 5: cmake --find-package (deprecated since CMake 3.16, removed in 3.27 — last resort)
+        try {
+            const shellExe = isWindows ? 'cmd.exe' : '/bin/sh';
+            const findPkgCmd = 'cmake --find-package -DNAME=GTest -DCOMPILER_ID=GNU -DLANGUAGE=CXX -DMODE=EXIST';
+            const shellArgs = isWindows ? ['/c', findPkgCmd] : ['-c', findPkgCmd];
+            await execFileAsync(shellExe, shellArgs);
+            gtestFound = true;
+            gtestMethod = 'cmake find_package';
+        } catch { /* cmake find-package failed or not supported */ }
+    }
+
+    if (gtestFound) {
+        results.push(`✅ Google Test (GTest): Found (via ${gtestMethod})`);
+        runner.log(`Prerequisites: GTest libraries found via ${gtestMethod}`);
+    } else {
+        allOk = false;
+        results.push('❌ Google Test (GTest): Not found — libgtest.a missing');
+        runner.log('Prerequisites: GTest not found');
+    }
+
     const summary = results.join('\n');
     runner.log(`Prerequisites check:\n${summary}`);
+
+    const installInstructions = [
+        'Ubuntu/Debian:',
+        '  sudo apt install -y build-essential cmake libgtest-dev',
+        '  cd /usr/src/gtest && sudo cmake . && sudo make && sudo cp lib/*.a /usr/lib/',
+        'macOS:',
+        '  brew install cmake googletest',
+    ].join('\n');
+
     if (!allOk) {
         runner.log('=== Install Instructions ===');
-        runner.log('Ubuntu/Debian:');
-        runner.log('  sudo apt install -y build-essential cmake libgtest-dev');
-        runner.log('  cd /usr/src/gtest && sudo cmake . && sudo make && sudo cp lib/*.a /usr/lib/');
-        runner.log('macOS:');
-        runner.log('  brew install cmake googletest');
+        runner.log(installInstructions);
     }
+
+    // Update status bar item
+    if (statusBarItem) {
+        if (allOk) {
+            statusBarItem.text = '$(check) Prerequisites';
+            statusBarItem.tooltip = 'All prerequisites met — click to re-check';
+            statusBarItem.backgroundColor = undefined;
+        } else {
+            statusBarItem.text = '$(warning) Prerequisites';
+            statusBarItem.tooltip = 'Some prerequisites are missing — click to check details';
+            statusBarItem.backgroundColor = new vscode.ThemeColor('statusBarItem.warningBackground');
+        }
+    }
+
     if (interactive) {
         if (allOk) {
             vscode.window.showInformationMessage(
-                'C Test Generator — All prerequisites met! See the Output panel for details.'
+                `C Test Generator — All prerequisites met!\n\n${summary}`,
+                { modal: true }
             );
         } else {
-            vscode.window.showWarningMessage(
-                'C Test Generator — Some prerequisites are missing. See the "C Test Generator" Output panel for details and install instructions.'
+            const choice = await vscode.window.showWarningMessage(
+                `C Test Generator — Some prerequisites are missing:\n\n${summary}\n\n${installInstructions}`,
+                { modal: true },
+                'Open Install Instructions'
             );
+            if (choice === 'Open Install Instructions') {
+                vscode.env.openExternal(vscode.Uri.parse(PREREQUISITES_README_URL));
+            }
         }
     } else {
         // Non-interactive: just log warnings for anything missing
         if (!allOk) {
-            runner.log('⚠️  Run "C Test Generator: Check Prerequisites" from the Command Palette to see details.');
+            runner.log('⚠️  Click the "Prerequisites" status bar item or run "C Test Generator: Check Prerequisites" from the Command Palette to see details.');
         }
     }
+
+    return allOk;
 }
 /**
  * Generate tests for the function at the current cursor position
