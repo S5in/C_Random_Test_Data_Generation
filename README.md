@@ -1,4 +1,4 @@
-# S5in C BVA Test Generator (v2.0.2)
+# S5in C BVA Test Generator (v2.0.3)
 A VS Code extension that **automatically generates Google Test (GTest) test cases** for your C functions using **Boundary Value Analysis (BVA)**.
 Right-click any C function → get a full set of boundary tests instantly. No test-writing boilerplate.
 ---
@@ -228,6 +228,10 @@ TEST(derefTest, Param_ptr_ValidPointer) {
 - **Files with `main()`** — If your `.c` file has a `main()` function, the extension automatically handles the conflict with GoogleTest's entry point. No manual changes needed.
 ---
 ## 📦 Release Notes
+### 2.0.3 — Patch
+- Output pointer parameters in void-return functions are now treated as output params in custom tests: the form no longer asks for an input value — it auto-declares the buffer and asserts its value after the call
+- Status bar "Prerequisites" item now appears immediately on startup (activation event changed to `onStartupFinished`)
+- Prerequisite detection now works when VS Code runs as a native Windows app with tools installed inside WSL (wsl.exe fallback added for g++, cmake, and GTest path checks)
 ### 2.0.2 — Patch
 - Add `Check Prerequisites` command to verify g++, CMake ≥ 3.14, and GTest
 - Fix command IDs to match publisher name (`s5in-c-bva-test-generator.*`)

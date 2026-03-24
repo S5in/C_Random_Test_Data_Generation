@@ -157,14 +157,19 @@ export class ExpectedValuesWebview {
             </div>
         `).join('');
 
-       const paramInfosJson = JSON.stringify(params.map(p => {
+        // A pointer parameter in a void-return function is treated as an output
+        // parameter: the function writes to it, so the user only needs to supply
+        // the expected result — not the initial pointed-to value.
+        const isVoidReturn = rt === 'void';
+        const paramInfosJson = JSON.stringify(params.map(p => {
             let fields: { name: string; type: string }[] | null = null;
             if (isStructType(p.type)) {
                 const bareName = getStructBareName(p.type);
                 const structInfo = structs.find(s => s.name.toLowerCase() === bareName);
                 if (structInfo) { fields = structInfo.fields; }
             }
-            return { name: p.name, type: p.type, fields };
+            const isOutputPointer = isVoidReturn && isPointerType(p.type);
+            return { name: p.name, type: p.type, fields, isOutputPointer };
         }));
         // Syntax-highlighted preview of the generated code
         return `<!DOCTYPE html>
@@ -563,6 +568,8 @@ export class ExpectedValuesWebview {
         <div class="custom-test-header">
             <div>Test Name</div>
             ${params.map(p => {
+                // Output pointer params (void return) are handled automatically — no input column
+                if (isVoidReturn && isPointerType(p.type)) { return ''; }
                 if (isStructType(p.type)) {
                     const bareName = getStructBareName(p.type);
                     const si = structs.find(s => s.name.toLowerCase() === bareName);
@@ -701,6 +708,9 @@ export class ExpectedValuesWebview {
             let html = '<input type="text" class="custom-name-input" placeholder="' + defaultName + '" value="' + defaultName + '" />';
             
            paramInfos.forEach(paramInfo => {
+                // Output pointer params (void-return functions) are declared automatically;
+                // no input is needed from the user — just the expected value.
+                if (paramInfo.isOutputPointer) { return; }
                 if (paramInfo.fields && paramInfo.fields.length > 0) {
                     // Struct: one labeled input per field
                     paramInfo.fields.forEach(field => {
