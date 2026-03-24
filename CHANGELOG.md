@@ -4,6 +4,14 @@ All notable changes to the "random-test-data-generation" extension will be docum
 
 Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how to structure this file.
 
+## [2.0.2] — 2026-03-24
+### Added
+- **Check Prerequisites command** — new `C Test Generator: Check Prerequisites` command verifies g++, CMake ≥ 3.14, and GTest are installed; shows install instructions if anything is missing.
+- **Silent startup check** — prerequisite check runs automatically on activation and logs warnings to the Output Channel without interrupting the user.
+### Fixed
+- **Command IDs** — renamed from `random-test-data-generation.*` to `s5in-c-bva-test-generator.*` to match the publisher name in `package.json`.
+- **WASM grammar loading** — pass the file path string directly to `Language.load()` instead of reading the file as a Buffer first; added descriptive error message on failure.
+
 ## [2.0.1] — 2026-03-23
 ### Fixed
 - **Automatic `main()` conflict resolution** — When the user's `.c` file contains a `main()` function,
