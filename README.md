@@ -1,4 +1,4 @@
-# C Test Generator – Boundary Value Analysis (v2.0.1)
+# S5in C BVA Test Generator (v2.0.1)
 A VS Code extension that **automatically generates Google Test (GTest) test cases** for your C functions using **Boundary Value Analysis (BVA)**.
 Right-click any C function → get a full set of boundary tests instantly. No test-writing boilerplate.
 ---
@@ -8,7 +8,7 @@ Right-click any C function → get a full set of boundary tests instantly. No te
 - **Supports all C primitive types** — `int`, `unsigned int`, `long`, `short`, `float`, `double`, `char`, `size_t`, and their variants
 - **Pointer, array & struct support** — Generates `NULL` / valid-pointer tests, single-element / typical array tests, and zero-initialized / extreme struct tests
 - **Global variable awareness** — Detects and tests global variables used by your function
-- **Test density control** — Choose `minimal`, `standard`, or `exhaustive` via the `cTestGenerator.testDensity` setting
+- **Test density control** — Choose `minimal`, `standard`, or `exhaustive` via the `s5inCBvaTestGenerator.testDensity` setting
 - **Interactive expected values** — Fill in expected results through a built-in webview UI, or skip and fill them manually later
 - **Custom Tests tab** — Add your own test cases with custom parameter values; struct parameters get per-field inputs; remove any custom test with the ✖ button
 - **Preview tab** — See the full generated C++ test code with syntax highlighting before saving
@@ -37,7 +37,7 @@ int func_with_struct(struct Point p);     // struct: zero-init + extreme values
 Add to your VS Code `settings.json` or workspace settings:
 ```json
 {
-  "cTestGenerator.testDensity": "standard"
+  "s5inCBvaTestGenerator.testDensity": "standard"
 }
 ```
 | Value | Tests per parameter | Description |
@@ -106,13 +106,13 @@ If both commands work, you're ready to go.
 ### From the VS Code Marketplace (Recommended)
 1. Open **VS Code**
 2. Go to the **Extensions** sidebar (`Ctrl+Shift+X`)
-3. Search for **"Random Test Data Generation"** in the search bar
+3. Search for **"S5in C BVA Test Generator"** in the search bar
 4. Click **Install** on the extension by **S5in**
 5. You're ready to go — no reload needed!
-> **Tip:** You can also open the Command Palette (`Ctrl+Shift+P`), type `ext install S5in.random-test-data-generation`, and press Enter.
+> **Tip:** You can also open the Command Palette (`Ctrl+Shift+P`), type `ext install S5in.s5in-c-bva-test-generator`, and press Enter.
 ### From the terminal
 ```bash
-code --install-extension S5in.random-test-data-generation
+code --install-extension S5in.s5in-c-bva-test-generator
 ```
 ---
 ## 📖 How to Use
@@ -210,11 +210,12 @@ TEST(derefTest, Param_ptr_ValidPointer) {
 | **Generate Tests for This Function** | `Ctrl+Shift+T` | Generate boundary tests for the function at cursor |
 | **Build & Run Tests** | — | Build and execute the generated tests |
 | **Clean Build Directory** | — | Remove the `build/` directory |
+| **Check Prerequisites** | — | Verify that g++, CMake ≥ 3.14, and GTest are installed; shows install instructions if anything is missing |
 ---
 ## ⚙️ Configuration
 | Setting | Default | Options | Description |
 |---------|---------|---------|-------------|
-| `cTestGenerator.testDensity` | `standard` | `minimal`, `standard`, `exhaustive` | Controls how many boundary test cases are generated per function |
+| `s5inCBvaTestGenerator.testDensity` | `standard` | `minimal`, `standard`, `exhaustive` | Controls how many boundary test cases are generated per function |
 ---
 ## ⚠️ Important Notes
 - **One function at a time** — Place your cursor inside the function you want to test. The extension tests the function at the cursor position, not the entire file.

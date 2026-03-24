@@ -11,6 +11,8 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
 import * as fs from 'fs';
+import { execFile } from 'child_process';
+import { promisify } from 'util';
 import { FunctionExtractor } from './parser/functionExtractor';
 import { GlobalExtractor } from './parser/globalExtractor';
 import { GlobalUsageAnalyzer } from './parser/globalUsageAnalyzer';
@@ -295,8 +297,12 @@ export async function activate(context: vscode.ExtensionContext) {
             throw new Error(`C grammar not found at: ${langPath}`);
         }
 
-        const wasmBuffer = fs.readFileSync(langPath);
-        const CLang = await ParserModule.Language.load(wasmBuffer);
+        let CLang;
+        try {
+            CLang = await ParserModule.Language.load(langPath);
+        } catch (wasmErr) {
+            throw new Error(`Failed to load C grammar WASM: ${wasmErr}\n\nEnsure tree-sitter-c.wasm is present in the dist folder.`);
+        }
         parser.setLanguage(CLang);
 
         buildRunner.log('C Test Generator: Parser initialized successfully');
@@ -305,7 +311,7 @@ export async function activate(context: vscode.ExtensionContext) {
         // Command 1: Generate Tests for Current Function
         // ========================================
         let generateTestCommand = vscode.commands.registerCommand(
-            'random-test-data-generation.generateTest', 
+            's5in-c-bva-test-generator.generateTest', 
             async () => {
                 try {
                     const result = await generateTestForCurrentFunction(parser);
@@ -354,7 +360,7 @@ export async function activate(context: vscode.ExtensionContext) {
         // Command 2: Build & Run Tests
         // ========================================
         let buildAndRunCommand = vscode.commands.registerCommand(
-            'random-test-data-generation.buildAndRun',
+            's5in-c-bva-test-generator.buildAndRun',
             async () => {
                 try {
                     const editor = vscode.window.activeTextEditor;
@@ -394,7 +400,7 @@ export async function activate(context: vscode.ExtensionContext) {
         // Command 3: Clean Build Directory
         // ========================================
         let cleanBuildCommand = vscode.commands.registerCommand(
-            'random-test-data-generation.cleanBuild',
+            's5in-c-bva-test-generator.cleanBuild',
             async () => {
                 try {
                     const editor = vscode.window.activeTextEditor;
@@ -415,11 +421,25 @@ export async function activate(context: vscode.ExtensionContext) {
             }
         );
 
+        // ========================================
+        // Command 4: Check Prerequisites
+        // ========================================
+        let checkPrerequisitesCommand = vscode.commands.registerCommand(
+            's5in-c-bva-test-generator.checkPrerequisites',
+            async () => {
+                await checkPrerequisites(buildRunner, true);
+            }
+        );
+
         // Register all commands
         context.subscriptions.push(generateTestCommand);
         context.subscriptions.push(buildAndRunCommand);
         context.subscriptions.push(cleanBuildCommand);
+        context.subscriptions.push(checkPrerequisitesCommand);
         context.subscriptions.push(buildRunner);
+
+        // Run prerequisite check on activation (non-blocking, warnings only)
+        checkPrerequisites(buildRunner, false).catch(() => { /* ignore */ });
 
         console.log('C Test Generator: Extension activated successfully');
 
@@ -428,6 +448,117 @@ export async function activate(context: vscode.ExtensionContext) {
         vscode.window.showErrorMessage(
             `C Test Generator failed to activate: ${error}\n\nCheck the output console for details.`
         );
+    }
+}
+
+/**
+ * Check prerequisites (g++, cmake ≥ 3.14, GTest) and report results.
+ * @param runner BuildRunner instance for logging
+ * @param interactive If true, shows info/error messages to the user; if false, only logs warnings
+ */
+async function checkPrerequisites(runner: BuildRunner, interactive: boolean): Promise<void> {
+    const execFileAsync = promisify(execFile);
+
+    const results: string[] = [];
+    let allOk = true;
+
+    // Check g++
+    try {
+        const { stdout } = await execFileAsync('g++', ['--version']);
+        const versionLine = stdout.split('\n')[0].trim();
+        results.push(`✅ g++: ${versionLine}`);
+        runner.log(`Prerequisites: g++ found — ${versionLine}`);
+    } catch {
+        allOk = false;
+        results.push('❌ g++: Not found');
+        runner.log('Prerequisites: g++ not found');
+    }
+
+    // Check cmake ≥ 3.14
+    try {
+        const { stdout } = await execFileAsync('cmake', ['--version']);
+        const match = stdout.match(/cmake version (\d+)\.(\d+)\.?(\d*)/i);
+        if (match) {
+            const major = parseInt(match[1], 10);
+            const minor = parseInt(match[2], 10);
+            const versionStr = `${major}.${minor}${match[3] ? '.' + match[3] : ''}`;
+            if (major > 3 || (major === 3 && minor >= 14)) {
+                results.push(`✅ CMake: ${versionStr} (≥ 3.14 required)`);
+                runner.log(`Prerequisites: CMake ${versionStr} found`);
+            } else {
+                allOk = false;
+                results.push(`❌ CMake: ${versionStr} — version 3.14 or higher required`);
+                runner.log(`Prerequisites: CMake ${versionStr} is too old (need ≥ 3.14)`);
+            }
+        } else {
+            results.push('✅ CMake: found (version unrecognised)');
+            runner.log('Prerequisites: CMake found but version not parsed');
+        }
+    } catch {
+        allOk = false;
+        results.push('❌ CMake: Not found (3.14+ required)');
+        runner.log('Prerequisites: CMake not found');
+    }
+
+    // Check GTest: look for libgtest.a in common locations or via pkg-config
+    const gtestPaths = [
+        '/usr/lib/libgtest.a',
+        '/usr/lib/libgtest_main.a',
+        '/usr/local/lib/libgtest.a',
+        '/usr/local/lib/libgtest_main.a',
+        '/usr/lib/x86_64-linux-gnu/libgtest.a',
+        '/usr/lib/x86_64-linux-gnu/libgtest_main.a',
+    ];
+    const gtestFound = gtestPaths.some(p => fs.existsSync(p));
+
+    if (gtestFound) {
+        results.push('✅ Google Test (GTest): Found');
+        runner.log('Prerequisites: GTest libraries found');
+    } else {
+        // Try pkg-config as a fallback
+        let pkgConfigOk = false;
+        try {
+            await execFileAsync('pkg-config', ['--libs', 'gtest']);
+            pkgConfigOk = true;
+        } catch { /* not found via pkg-config */ }
+
+        if (pkgConfigOk) {
+            results.push('✅ Google Test (GTest): Found via pkg-config');
+            runner.log('Prerequisites: GTest found via pkg-config');
+        } else {
+            allOk = false;
+            results.push('❌ Google Test (GTest): Not found — libgtest.a missing');
+            runner.log('Prerequisites: GTest not found');
+        }
+    }
+
+    const summary = results.join('\n');
+    runner.log(`Prerequisites check:\n${summary}`);
+
+    if (!allOk) {
+        runner.log('=== Install Instructions ===');
+        runner.log('Ubuntu/Debian:');
+        runner.log('  sudo apt install -y build-essential cmake libgtest-dev');
+        runner.log('  cd /usr/src/gtest && sudo cmake . && sudo make && sudo cp lib/*.a /usr/lib/');
+        runner.log('macOS:');
+        runner.log('  brew install cmake googletest');
+    }
+
+    if (interactive) {
+        if (allOk) {
+            vscode.window.showInformationMessage(
+                'C Test Generator — All prerequisites met! See the Output panel for details.'
+            );
+        } else {
+            vscode.window.showWarningMessage(
+                'C Test Generator — Some prerequisites are missing. See the "C Test Generator" Output panel for details and install instructions.'
+            );
+        }
+    } else {
+        // Non-interactive: just log warnings for anything missing
+        if (!allOk) {
+            runner.log('⚠️  Run "C Test Generator: Check Prerequisites" from the Command Palette to see details.');
+        }
     }
 }
 
@@ -599,7 +730,7 @@ async function generateTestForCurrentFunction(parser: any): Promise<{
     const sourceFileName = path.basename(document.fileName);
     
     // Read test density from configuration
-    const density = vscode.workspace.getConfiguration('cTestGenerator').get<TestDensity>('testDensity', 'standard');
+    const density = vscode.workspace.getConfiguration('s5inCBvaTestGenerator').get<TestDensity>('testDensity', 'standard');
     buildRunner.log(`Generating test code (density: ${density})...`);
     
     const { testCode, testCases } = TestGenerator.generateTestsWithCaseInfo(
