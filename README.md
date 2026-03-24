@@ -99,8 +99,12 @@ Open a terminal and run:
 ```bash
 g++ --version     # Should print version info
 cmake --version   # Should print 3.14 or higher
+ls /usr/lib/libgtest*.a 2>/dev/null || ls /usr/local/lib/libgtest*.a 2>/dev/null
+                  # Should list libgtest.a and libgtest_main.a
 ```
-If both commands work, you're ready to go.
+If all three commands produce output, you're ready to go.
+
+> **Tip:** You can also verify everything from within VS Code — click the **Prerequisites** status bar item at the bottom, or open the Command Palette (`Ctrl+Shift+P`) and run **"C Test Generator: Check Prerequisites"**. A dialog will show the status of each tool and install instructions if anything is missing.
 ---
 ## 🚀 Installation
 ### From the VS Code Marketplace (Recommended)
