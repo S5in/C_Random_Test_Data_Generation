@@ -4,6 +4,11 @@ All notable changes to the "random-test-data-generation" extension will be docum
 
 Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how to structure this file.
 
+## [2.1.0] — 2026-03-24
+### Fixed
+- **Custom test array size clamping** — When a user entered fewer array elements than the declared `size` parameter, the extension previously padded the array by repeating the last element, which produced wrong expected values and could cause UB. The `size` parameter is now clamped to the actual element count the user entered (e.g. entering `arr = "1, 2, 3"` with `size = 5` now emits `int arr[] = {1, 2, 3}; int size = 3;` instead of repeating `3` twice).
+- Replaced internal `expandToSize()` helper with `countElements()` — size is derived from the array value the user entered, not forced to a separate `size` input.
+
 ## [2.0.2] — 2026-03-24
 ### Added
 - **Check Prerequisites command** — new `C Test Generator: Check Prerequisites` command verifies g++, CMake ≥ 3.14, and GTest are installed; shows install instructions if anything is missing.

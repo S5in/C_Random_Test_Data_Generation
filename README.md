@@ -1,4 +1,4 @@
-# S5in C BVA Test Generator (v2.0.3)
+# S5in C BVA Test Generator (v2.1.0)
 A VS Code extension that **automatically generates Google Test (GTest) test cases** for your C functions using **Boundary Value Analysis (BVA)**.
 Right-click any C function → get a full set of boundary tests instantly. No test-writing boilerplate.
 ---
@@ -20,6 +20,24 @@ Right-click any C function → get a full set of boundary tests instantly. No te
 - **Output Channel logging** — All extension activity appears in the "C Test Generator" output panel
 - **Cross-platform** — Works on Windows, Linux, and WSL
 ---
+## 🆕 What's New in v2.1.0
+### Fix — Custom test array size clamping
+When you entered fewer elements than the declared `size` parameter in a Custom Test, the extension used to repeat the last element to fill the gap — producing wrong expected values and potential undefined behaviour.
+
+```cpp
+// User enters: arr = "1, 2, 3"  |  size = 5
+
+// Before (wrong — last element duplicated):
+int arr[] = {1, 2, 3, 3, 3};
+int size = 5;
+
+// After (correct — size clamped to actual count):
+int arr[] = {1, 2, 3};
+int size = 3;
+```
+
+The `size` parameter is now automatically set to the number of elements you actually provide, so the generated test is always correct.
+
 ## 🆕 What's New in v2.0.0
 ### Goal 1 — Pointer, Array & Struct support
 ```c
@@ -229,6 +247,9 @@ TEST(derefTest, Param_ptr_ValidPointer) {
 - **Files with `main()`** — If your `.c` file has a `main()` function, the extension automatically handles the conflict with GoogleTest's entry point. No manual changes needed.
 ---
 ## 📦 Release Notes
+### 2.1.0 — Fix
+- **Custom test array size clamping** — When fewer array elements were entered than the declared `size` parameter, the extension previously padded the array by repeating the last element, corrupting the expected value. The `size` parameter is now automatically clamped to the actual element count entered by the user.
+
 ### 2.0.3 — Patch
 - Output pointer parameters in void-return functions are now treated as output params in custom tests: the form no longer asks for an input value — it auto-declares the buffer and asserts its value after the call
 - Status bar "Prerequisites" item now appears immediately on startup (activation event changed to `onStartupFinished`)
