@@ -1163,7 +1163,18 @@ export class ExpectedValuesWebview {
                     return `char ${name}[] = ${strLit}`;
                 }
             }
-            // e.g. "int *" → int data_val = 5; int * data = &data_val;
+            // If the user supplied multiple comma-separated values (or a brace-list),
+            // the pointer is used as an array.  Generate a backing array so the
+            // pointer is valid for all elements.
+            // e.g. "int *" with "1,2,3" → int arr_arr[] = {1, 2, 3}; int * arr = arr_arr;
+            const isMultiValue = /,/.test(value) || /^\s*\{/.test(value);
+            if (isMultiValue) {
+                const braceValue = /^\s*\{/.test(value)
+                    ? value
+                    : `{${value.split(',').map(v => v.trim()).join(', ')}}`;
+                return `${baseType} ${name}_arr[] = ${braceValue};\n    ${type} ${name} = ${name}_arr`;
+            }
+            // e.g. "int *" with "5" → int data_val = 5; int * data = &data_val;
             return `${baseType} ${name}_val = ${value};\n    ${type} ${name} = &${name}_val`;
         } else if (isStructType(type)) {
             // Ensure aggregate initializer syntax: {x, y}
