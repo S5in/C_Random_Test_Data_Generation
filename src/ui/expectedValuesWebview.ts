@@ -1047,11 +1047,16 @@ export class ExpectedValuesWebview {
                                         : isDouble ? 'EXPECT_DOUBLE_EQ'
                                         :            'EXPECT_EQ';
                 const paramCallArgs = params.map(p => p.name).join(', ');
+                // Pick a return-value variable name that doesn't shadow any parameter name.
+                const paramNamesSet = new Set(params.map(p => p.name));
+                const retVar = !paramNamesSet.has('result') ? 'result'
+                             : !paramNamesSet.has('actual') ? 'actual'
+                             : 'retval';
                 customTestsCode += '\n    // Act\n';
                 if (isVoid) {
                     customTestsCode += `    ${functionName}(${paramCallArgs});\n`;
                 } else {
-                    customTestsCode += `    ${resultType} result = ${functionName}(${paramCallArgs});\n`;
+                    customTestsCode += `    ${resultType} ${retVar} = ${functionName}(${paramCallArgs});\n`;
                 }
                 customTestsCode += '\n    // Assert\n';
                 
@@ -1066,7 +1071,7 @@ export class ExpectedValuesWebview {
                         customTestsCode += `    FAIL() << "Expected side-effect assertion needed for ${functionName}()";\n`;
                     }
                 } else {
-                    customTestsCode += `    ${customAssertMacro}(result, ${expectedValue});\n`;
+                    customTestsCode += `    ${customAssertMacro}(${retVar}, ${expectedValue});\n`;
                 }
                 customTestsCode += '}\n\n';
             }

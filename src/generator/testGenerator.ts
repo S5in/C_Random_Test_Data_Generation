@@ -98,9 +98,10 @@ export class TestGenerator {
                     code += `\n    GTEST_SKIP() << "${set.skipReason}";\n`;
                 } else {
                     code += '\n';
-                    code += this.emitAct(func, func.parameters.map(p => p.name));
+                    const paramNames = func.parameters.map(p => p.name);
+                    code += this.emitAct(func, paramNames);
                     code += '\n';
-                    code += this.emitAssert(func, set);
+                    code += this.emitAssert(func, set, paramNames);
                 }
             }
 
@@ -198,9 +199,10 @@ export class TestGenerator {
                     code += this.buildParamDeclaration(func.parameters[i], set, i);
                 }
                 code += '\n';
-                code += this.emitAct(func, func.parameters.map(p => p.name));
+                const paramNames = func.parameters.map(p => p.name);
+                code += this.emitAct(func, paramNames);
                 code += '\n';
-                code += this.emitAssert(func, set);
+                code += this.emitAssert(func, set, paramNames);
             }
             code += '}\n\n';
 
@@ -262,9 +264,10 @@ export class TestGenerator {
                 }
 
                 code += '\n';
-                code += this.emitAct(func, func.parameters.length > 0 ? func.parameters.map(p => p.name) : []);
+                const paramNames = func.parameters.length > 0 ? func.parameters.map(p => p.name) : [];
+                code += this.emitAct(func, paramNames);
                 code += '\n';
-                code += this.emitAssert(func);
+                code += this.emitAssert(func, undefined, paramNames);
                 code += '}\n\n';
 
                 const paramValues = func.parameters.map(p => ({
@@ -343,9 +346,10 @@ export class TestGenerator {
                 }
             }
             code += '\n';
-            code += this.emitAct(func, func.parameters.length > 0 ? func.parameters.map(p => p.name) : []);
+            const paramNames = func.parameters.length > 0 ? func.parameters.map(p => p.name) : [];
+            code += this.emitAct(func, paramNames);
             code += '\n';
-            code += this.emitAssert(func);
+            code += this.emitAssert(func, undefined, paramNames);
             code += '}\n\n';
             cases.push({ testName: comboLabel, inputs: `Globals=${globalBoundaryLabel}, Params=${paramBoundaryLabel}`, paramValues: [], globalValues: [] });
         };
@@ -562,6 +566,16 @@ ${externBlock}
     }
 
     /**
+     * Choose a variable name for the function return value that does not shadow
+     * any parameter name.  Falls back through 'result' → 'actual' → 'retval'.
+     */
+    private static safeReturnVar(paramNames: string[]): string {
+        if (!paramNames.includes('result')) { return 'result'; }
+        if (!paramNames.includes('actual')) { return 'actual'; }
+        return 'retval';
+    }
+
+    /**
      * Emit the Act section — calls the function, capturing result only for non-void.
      */
     private static emitAct(
@@ -573,7 +587,8 @@ ${externBlock}
         if (this.isVoidReturn(func.returnType)) {
             code += `    ${func.name}(${args});\n`;
         } else {
-            code += `    ${func.returnType} result = ${func.name}(${args});\n`;
+            const retVar = this.safeReturnVar(paramNames);
+            code += `    ${func.returnType} ${retVar} = ${func.name}(${args});\n`;
         }
         return code;
     }
@@ -582,11 +597,15 @@ ${externBlock}
      * Emit the Assert section, adapting to void vs. non-void return types.
      * For void functions: emits a TODO comment about asserting side effects.
      * For non-void functions: emits FAIL() with the result value.
+     * @param paramNames - the parameter names used in this test (needed to pick a
+     *                     non-conflicting return-value variable name).
      */
     private static emitAssert(
         func: FunctionInfo,
-        set?: { testNote?: string; noAssertion?: boolean }
+        set?: { testNote?: string; noAssertion?: boolean },
+        paramNames: string[] = []
     ): string {
+        const retVar = this.safeReturnVar(paramNames);
         let code = '    // Assert\n';
         if (set?.testNote) {
             code += `    // NOTE: ${set.testNote}\n`;
@@ -595,10 +614,10 @@ ${externBlock}
             code += '    // TODO: Assert side effects (e.g., modified pointer targets, globals)\n';
             code += `    FAIL() << "Expected side-effect assertion needed for ${func.name}()";\n`;
         } else if (set?.noAssertion) {
-            code += `    (void)result; // No assertion \u2014 see note above\n`;
+            code += `    (void)${retVar}; // No assertion \u2014 see note above\n`;
         } else {
             code += '    // TODO: Provide expected value\n';
-            code += `    FAIL() << "Expected value needed. Got: " << result;\n`;
+            code += `    FAIL() << "Expected value needed. Got: " << ${retVar};\n`;
         }
         return code;
     }
