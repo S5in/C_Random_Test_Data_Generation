@@ -17,6 +17,11 @@ interface CustomTest {
 }
 
 export class ExpectedValuesWebview {
+    /** Common size-parameter names used when detecting array–size pairs. */
+    private static readonly SIZE_PARAM_NAMES = new Set([
+        'size', 'len', 'length', 'n', 'count', 'num', 'sz',
+        'nelem', 'nelems', 'num_elements', 'array_size', 'num_items',
+    ]);
     /**
      * Show webview panel for filling expected values
      * @returns Promise that resolves to true if user wants to build & run, false otherwise
@@ -1024,9 +1029,29 @@ export class ExpectedValuesWebview {
                 customTestsCode += `TEST(${functionName}Test, ${uniqueName}) {\n`;
                 customTestsCode += '    // Arrange (Custom)\n';
 
-                // Iterate through parameters and emit correct C++ declarations
-                for (const param of params) {
-                    const value = test.params[param.name] || '0';
+                 // Iterate through parameters and emit correct C++ declarations.
+                // For array/pointer + size pairs, clamp the size to the actual element
+                // count the user entered so the generated test never reads past the
+                // declared array bounds (UB) while preserving the exact values entered.
+                // e.g. user enters arr="1,2,3" with size=5 → int arr[]={1,2,3}; int size=3;
+                const sizeOverrides = new Map<number, string>();
+                for (let paramIdx = 0; paramIdx < params.length; paramIdx++) {
+                    const param = params[paramIdx];
+                    let value = test.params[param.name] || '0';
+                    if (isArrayType(param.type) || isPointerType(param.type)) {
+                        const sizeIdx = ExpectedValuesWebview.findPairedSizeIndex(params, paramIdx);
+                        if (sizeIdx >= 0) {
+                            const arrValue = test.params[param.name] || '0';
+                            const elemCount = ExpectedValuesWebview.countElements(arrValue);
+                            sizeOverrides.set(sizeIdx, String(elemCount));
+                        }
+                    }
+                    }
+                    for (let paramIdx = 0; paramIdx < params.length; paramIdx++) {
+                        const param = params[paramIdx];
+                        const value = sizeOverrides.has(paramIdx)
+                            ? sizeOverrides.get(paramIdx)!
+                            : (test.params[param.name] || '0');
                     customTestsCode += `    ${this.buildParamDeclaration(param, value)};\n`;
                 }
 
@@ -1196,6 +1221,44 @@ export class ExpectedValuesWebview {
         }
     }
 
+    /**
+         * Given a parameter index whose type is an array or non-char-pointer, find the
+     * index of the corresponding "size" parameter using common naming conventions.
+     * Returns -1 when no size parameter is detected.
+     */
+    private static findPairedSizeIndex(params: FunctionParameter[], arrIdx: number): number {
+
+        const param = params[arrIdx];
+        if (!isArrayType(param.type) && !isPointerType(param.type)) { return -1; }
+        // char pointers represent strings, not arrays — skip them
+        if (isPointerType(param.type)) {
+            const base = param.type.replace(/\s*\*+\s*$/, '').trim();
+            if (base === 'char' || base === 'const char') { return -1; }
+        }
+        for (let j = 0; j < params.length; j++) {
+            if (j === arrIdx) { continue; }
+            const name = params[j].name.toLowerCase();
+            if (ExpectedValuesWebview.SIZE_PARAM_NAMES.has(name) &&
+                !isArrayType(params[j].type) &&
+                !isPointerType(params[j].type) &&
+                !isStructType(params[j].type)) {
+                return j;
+            }
+        }
+        return -1;
+    }
+    /**
+     * Count the number of comma-separated elements in a user-supplied array value string.
+     * e.g. countElements("1, 2, 3") → 3
+     *      countElements("{1,2}")   → 2
+     *      countElements("3")       → 1
+     *      countElements("")        → 0
+     */
+    private static countElements(value: string): number {
+        const stripped = value.trim().replace(/^\{|\}$/g, '').trim();
+        if (!stripped) { return 0; }
+        return stripped.split(',').map(v => v.trim()).filter(v => v !== '').length;
+    }
     /**
      * Sanitize test name for C++
      */
