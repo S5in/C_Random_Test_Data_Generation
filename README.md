@@ -8,7 +8,7 @@ Right-click any C function → get a full set of boundary tests instantly. No te
 - **Supports all C primitive types** — `int`, `unsigned int`, `long`, `short`, `float`, `double`, `char`, `size_t`, and their variants
 - **Pointer, array & struct support** — Generates `NULL` / valid-pointer tests, single-element / typical array tests, and zero-initialized / extreme struct tests
 - **Global variable awareness** — Detects and tests global variables used by your function
-- **Test density control** — Choose `minimal`, `standard`, or `exhaustive` via the `cTestGenerator.testDensity` setting
+- **Test density control** — Choose `minimal`, `standard`, or `exhaustive` via the `s5inCBvaTestGenerator.testDensity` setting
 - **Interactive expected values** — Fill in expected results through a built-in webview UI, or skip and fill them manually later
 - **Custom Tests tab** — Add your own test cases with custom parameter values; struct parameters get per-field inputs; remove any custom test with the ✖ button
 - **Preview tab** — See the full generated C++ test code with syntax highlighting before saving
@@ -37,7 +37,7 @@ int func_with_struct(struct Point p);     // struct: zero-init + extreme values
 Add to your VS Code `settings.json` or workspace settings:
 ```json
 {
-  "cTestGenerator.testDensity": "standard"
+  "s5inCBvaTestGenerator.testDensity": "standard"
 }
 ```
 | Value | Tests per parameter | Description |
@@ -215,7 +215,7 @@ TEST(derefTest, Param_ptr_ValidPointer) {
 ## ⚙️ Configuration
 | Setting | Default | Options | Description |
 |---------|---------|---------|-------------|
-| `cTestGenerator.testDensity` | `standard` | `minimal`, `standard`, `exhaustive` | Controls how many boundary test cases are generated per function |
+| `s5inCBvaTestGenerator.testDensity` | `standard` | `minimal`, `standard`, `exhaustive` | Controls how many boundary test cases are generated per function |
 ---
 ## ⚠️ Important Notes
 - **One function at a time** — Place your cursor inside the function you want to test. The extension tests the function at the cursor position, not the entire file.
