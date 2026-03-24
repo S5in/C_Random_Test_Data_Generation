@@ -1030,22 +1030,28 @@ export class ExpectedValuesWebview {
                 customTestsCode += `TEST(${functionName}Test, ${uniqueName}) {\n`;
                 customTestsCode += '    // Arrange (Custom)\n';
 
-                // Iterate through parameters and emit correct C++ declarations
+                // Iterate through parameters and emit correct C++ declarations.
+                // For array/pointer + size pairs, clamp the size to the actual element
+                // count the user entered so the generated test never reads past the
+                // declared array bounds (UB) while preserving the exact values entered.
+                // e.g. user enters arr="1,2,3" with size=5 → int arr[]={1,2,3}; int size=3;
+                const sizeOverrides = new Map<number, string>();
                 for (let paramIdx = 0; paramIdx < params.length; paramIdx++) {
                     const param = params[paramIdx];
-                    let value = test.params[param.name] || '0';
-                    // Auto-expand array/pointer values to match the paired size parameter so
-                    // the generated test never reads past the declared array bounds (UB).
-                    // e.g. user enters arr="3" with size=3 → expand to arr="3, 3, 3"
                     if (isArrayType(param.type) || isPointerType(param.type)) {
                         const sizeIdx = ExpectedValuesWebview.findPairedSizeIndex(params, paramIdx);
                         if (sizeIdx >= 0) {
-                            const sizeNum = parseInt(test.params[params[sizeIdx].name] || '0', 10);
-                            if (!isNaN(sizeNum) && sizeNum > 0) {
-                                value = ExpectedValuesWebview.expandToSize(value, sizeNum);
-                            }
+                            const arrValue = test.params[param.name] || '0';
+                            const elemCount = ExpectedValuesWebview.countElements(arrValue);
+                            sizeOverrides.set(sizeIdx, String(elemCount));
                         }
                     }
+                }
+                for (let paramIdx = 0; paramIdx < params.length; paramIdx++) {
+                    const param = params[paramIdx];
+                    const value = sizeOverrides.has(paramIdx)
+                        ? sizeOverrides.get(paramIdx)!
+                        : (test.params[param.name] || '0');
                     customTestsCode += `    ${this.buildParamDeclaration(param, value)};\n`;
                 }
 
@@ -1242,24 +1248,16 @@ export class ExpectedValuesWebview {
     }
 
     /**
-     * Ensure a comma-separated element list has at least `size` entries.
-     * If fewer elements are provided, the last element is repeated to fill the gap.
-     * e.g. expandToSize("1, 2", 4) → "1, 2, 2, 2"
-     *      expandToSize("3",    3) → "3, 3, 3"
+     * Count the number of comma-separated elements in a user-supplied array value string.
+     * e.g. countElements("1, 2, 3") → 3
+     *      countElements("{1,2}")   → 2
+     *      countElements("3")       → 1
+     *      countElements("")        → 0
      */
-    private static expandToSize(value: string, size: number): string {
+    private static countElements(value: string): number {
         const stripped = value.trim().replace(/^\{|\}$/g, '').trim();
-        const elements = stripped
-            ? stripped.split(',').map(v => v.trim()).filter(v => v !== '')
-            : ['0'];
-        if (elements.length >= size) {
-            return elements.join(', ');
-        }
-        const last = elements[elements.length - 1] || '0';
-        while (elements.length < size) {
-            elements.push(last);
-        }
-        return elements.join(', ');
+        if (!stripped) { return 0; }
+        return stripped.split(',').map(v => v.trim()).filter(v => v !== '').length;
     }
 
     /**
