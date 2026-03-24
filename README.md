@@ -1,4 +1,4 @@
-# C Test Generator – Boundary Value Analysis (v2.0.1)
+# S5in C BVA Test Generator (v2.0.1)
 A VS Code extension that **automatically generates Google Test (GTest) test cases** for your C functions using **Boundary Value Analysis (BVA)**.
 Right-click any C function → get a full set of boundary tests instantly. No test-writing boilerplate.
 ---
@@ -106,13 +106,13 @@ If both commands work, you're ready to go.
 ### From the VS Code Marketplace (Recommended)
 1. Open **VS Code**
 2. Go to the **Extensions** sidebar (`Ctrl+Shift+X`)
-3. Search for **"Random Test Data Generation"** in the search bar
+3. Search for **"S5in C BVA Test Generator"** in the search bar
 4. Click **Install** on the extension by **S5in**
 5. You're ready to go — no reload needed!
-> **Tip:** You can also open the Command Palette (`Ctrl+Shift+P`), type `ext install S5in.random-test-data-generation`, and press Enter.
+> **Tip:** You can also open the Command Palette (`Ctrl+Shift+P`), type `ext install S5in.s5in-c-bva-test-generator`, and press Enter.
 ### From the terminal
 ```bash
-code --install-extension S5in.random-test-data-generation
+code --install-extension S5in.s5in-c-bva-test-generator
 ```
 ---
 ## 📖 How to Use
@@ -210,6 +210,7 @@ TEST(derefTest, Param_ptr_ValidPointer) {
 | **Generate Tests for This Function** | `Ctrl+Shift+T` | Generate boundary tests for the function at cursor |
 | **Build & Run Tests** | — | Build and execute the generated tests |
 | **Clean Build Directory** | — | Remove the `build/` directory |
+| **Check Prerequisites** | — | Verify that g++, CMake ≥ 3.14, and GTest are installed; shows install instructions if anything is missing |
 ---
 ## ⚙️ Configuration
 | Setting | Default | Options | Description |
