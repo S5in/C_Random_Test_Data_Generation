@@ -937,8 +937,16 @@ export class ExpectedValuesWebview {
 
                 if (line.includes('// TODO: Provide expected value')) {
                     const valueEntry = values.find(v => v.index === testIndex);
-                    if (valueEntry && i + 1 < lines.length && lines[i + 1].includes('FAIL()')) {
+                    // Match FAIL() or the EXPECT_TRUE(std::isnan...) placeholder
+                    // emitted by testGenerator for float-special-value inputs.
+                    if (valueEntry && i + 1 < lines.length &&
+                        (lines[i + 1].includes('FAIL()') || lines[i + 1].includes('EXPECT_TRUE(std::isnan'))) {
                         const indent = lines[i + 1].match(/^\s*/)?.[0] || '    ';
+                        // Extract the return variable name from the assertion line
+                        // (could be 'result', 'actual', or 'retval' depending on param names).
+                        const retVarMatch = lines[i + 1].match(/<<\s*(\w+)\s*;/) ||
+                                            lines[i + 1].match(/std::isnan\((\w+)\)/);
+                        const retVar = retVarMatch?.[1] || 'result';
                         const trimmedValue = valueEntry.value.trim().toLowerCase();
                         const rt = returnType.trim().toLowerCase();
                         const isFloatReturn  = rt === 'float';
@@ -949,10 +957,10 @@ export class ExpectedValuesWebview {
 
                         if (trimmedValue === 'overflow' && !isFloatReturn && !isDoubleReturn) {
                             lines[i] = `${indent}// Expected: Overflow behavior`;
-                            lines[i + 1] = `${indent}SUCCEED() << "Overflow case - result: " << result;`;
+                            lines[i + 1] = `${indent}SUCCEED() << "Overflow case - result: " << ${retVar};`;
                         } else if (trimmedValue === 'undefined' || trimmedValue === 'ub') {
                             lines[i] = `${indent}// Expected: Undefined behavior`;
-                            lines[i + 1] = `${indent}SUCCEED() << "Undefined behavior case - result: " << result;`;
+                            lines[i + 1] = `${indent}SUCCEED() << "Undefined behavior case - result: " << ${retVar};`;
                         } else if (trimmedValue === 'skip' || trimmedValue === '' || trimmedValue === 'overflow') {
                             // 'overflow' for float/double is treated as skip — IEEE 754 arithmetic is
                             // always well-defined; the user should provide the actual value instead.
@@ -962,13 +970,13 @@ export class ExpectedValuesWebview {
                             // NaN cannot be compared with == (IEEE 754: NaN != NaN).
                             // INFINITY/-INFINITY need std::isinf() checks.
                             if (normalizedValue === 'NAN') {
-                                lines[i] = `${indent}EXPECT_TRUE(std::isnan(result));`;
+                                lines[i] = `${indent}EXPECT_TRUE(std::isnan(${retVar}));`;
                             } else if (normalizedValue === 'INFINITY') {
-                                lines[i] = `${indent}EXPECT_TRUE(std::isinf(result) && result > 0);`;
+                                lines[i] = `${indent}EXPECT_TRUE(std::isinf(${retVar}) && ${retVar} > 0);`;
                             } else if (normalizedValue === '-INFINITY') {
-                                lines[i] = `${indent}EXPECT_TRUE(std::isinf(result) && result < 0);`;
+                                lines[i] = `${indent}EXPECT_TRUE(std::isinf(${retVar}) && ${retVar} < 0);`;
                             } else {
-                                lines[i] = `${indent}${assertMacro}(result, ${normalizedValue});`;
+                                lines[i] = `${indent}${assertMacro}(${retVar}, ${normalizedValue});`;
                             }
                             lines.splice(i + 1, 1);
                         }
@@ -1132,17 +1140,19 @@ export class ExpectedValuesWebview {
      * Normalise user-supplied float special-value strings to the correct
      * uppercase C/C++ macro names so that generated tests compile regardless
      * of the casing the user typed in the webview.
-     *   nan | NaN | NAN  →  NAN
-     *   inf | Inf | infinity | INFINITY  →  INFINITY
-     *   -inf | -Inf | -infinity | -INFINITY  →  -INFINITY
+     *   nan | NaN | NAN | -nan | nanf | nanl  →  NAN
+     *   inf | Inf | infinity | INFINITY | +inf | inff  →  INFINITY
+     *   -inf | -Inf | -infinity | -INFINITY | -inff  →  -INFINITY
      * All other values are returned unchanged.
      */
     private static normalizeFloatSpecialValue(value: string): string {
         const v = value.trim();
-        const upper = v.toUpperCase();
-        if (upper === 'NAN')                           { return 'NAN'; }
-        if (upper === 'INFINITY' || upper === 'INF')   { return 'INFINITY'; }
-        if (upper === '-INFINITY' || upper === '-INF') { return '-INFINITY'; }
+        // NaN (any sign or suffix): -nan, nanf, nanl, NaN, etc.
+        if (/^[+-]?\s*nan[fl]?$/i.test(v))                     { return 'NAN'; }
+        // Positive infinity (optional +, optional f/l suffix)
+        if (/^\+?\s*inf(?:inity)?[fl]?$/i.test(v))             { return 'INFINITY'; }
+        // Negative infinity
+        if (/^-\s*inf(?:inity)?[fl]?$/i.test(v))               { return '-INFINITY'; }
         return v;
     }
     /**

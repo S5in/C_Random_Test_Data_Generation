@@ -567,6 +567,14 @@ ${externBlock}
     }
 
     /**
+     * Check if a return type is a floating-point type (float or double).
+     */
+    private static isFloatingReturn(returnType: string): boolean {
+        const rt = returnType.trim().toLowerCase();
+        return rt === 'float' || rt === 'double';
+    }
+
+    /**
      * Choose a variable name for the function return value that does not shadow
      * any parameter name.  Falls back through 'result' → 'actual' → 'retval'.
      */
@@ -610,7 +618,8 @@ ${externBlock}
         if (set?.testNote) {
             code += `    // NOTE: ${set.testNote}\n`;
         }
-        if (set?.values?.some(v => isFloatSpecialValue(v))) {
+        const hasSpecialFloatInput = set?.values?.some(v => isFloatSpecialValue(v)) ?? false;
+        if (hasSpecialFloatInput) {
             code += '    // Note: result may be Inf or NaN \u2014 use std::isinf() / std::isnan() for assertions\n';
         }
         if (this.isVoidReturn(func.returnType)) {
@@ -618,6 +627,12 @@ ${externBlock}
             code += `    FAIL() << "Expected side-effect assertion needed for ${func.name}()";\n`;
         } else if (set?.noAssertion) {
             code += `    (void)${retVar}; // No assertion \u2014 see note above\n`;
+        } else if (hasSpecialFloatInput && this.isFloatingReturn(func.returnType)) {
+            // When inputs include NaN / Inf and the return type is floating-point,
+            // the result is most likely NaN or Inf and cannot be compared with
+            // EXPECT_FLOAT_EQ / EXPECT_DOUBLE_EQ (IEEE 754: NaN != NaN).
+            code += '    // TODO: Provide expected value\n';
+            code += `    EXPECT_TRUE(std::isnan(${retVar}) || std::isinf(${retVar})) << "Got: " << ${retVar};\n`;
         } else {
             code += '    // TODO: Provide expected value\n';
             code += `    FAIL() << "Expected value needed. Got: " << ${retVar};\n`;
