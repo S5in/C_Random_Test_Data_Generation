@@ -465,7 +465,7 @@ export class TestGenerator {
 #include <climits>
 #include <cfloat>
 #include <cstddef>
-#include <limits>
+#include <cmath>
 
 ${externBlock}
 

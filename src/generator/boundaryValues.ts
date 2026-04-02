@@ -199,9 +199,9 @@ const BOUNDARY_CATALOG: Record<string, BoundaryValue[]> = {
         { label: 'near-zero-positive',    literal: 'FLT_EPSILON',             requiresHeader: 'cfloat' },
         { label: 'near-zero-negative',    literal: '-FLT_EPSILON',            requiresHeader: 'cfloat' },
         { label: 'smallest-positive',     literal: 'FLT_MIN',                 requiresHeader: 'cfloat' },
-        { label: 'positive-infinity',     literal: 'std::numeric_limits<float>::infinity()',            requiresHeader: 'limits' },
-        { label: 'negative-infinity',     literal: '-std::numeric_limits<float>::infinity()',           requiresHeader: 'limits' },
-        { label: 'nan',                   literal: 'std::numeric_limits<float>::quiet_NaN()',           requiresHeader: 'limits' },
+        { label: 'positive-infinity',     literal: 'INFINITY',                requiresHeader: 'cmath' },
+        { label: 'negative-infinity',     literal: '-INFINITY',               requiresHeader: 'cmath' },
+        { label: 'nan',                   literal: 'NAN',                     requiresHeader: 'cmath' },
     ],
 
     'double': [
@@ -215,9 +215,9 @@ const BOUNDARY_CATALOG: Record<string, BoundaryValue[]> = {
         { label: 'near-zero-positive',    literal: 'DBL_EPSILON',             requiresHeader: 'cfloat' },
         { label: 'near-zero-negative',    literal: '-DBL_EPSILON',            requiresHeader: 'cfloat' },
         { label: 'smallest-positive',     literal: 'DBL_MIN',                 requiresHeader: 'cfloat' },
-        { label: 'positive-infinity',     literal: 'std::numeric_limits<double>::infinity()',           requiresHeader: 'limits' },
-        { label: 'negative-infinity',     literal: '-std::numeric_limits<double>::infinity()',          requiresHeader: 'limits' },
-        { label: 'nan',                   literal: 'std::numeric_limits<double>::quiet_NaN()',          requiresHeader: 'limits' },
+        { label: 'positive-infinity',     literal: 'INFINITY',                requiresHeader: 'cmath' },
+        { label: 'negative-infinity',     literal: '-INFINITY',               requiresHeader: 'cmath' },
+        { label: 'nan',                   literal: 'NAN',                     requiresHeader: 'cmath' },
     ],
 
     'size_t': [
@@ -1043,6 +1043,9 @@ export function generateBoundarySets(
                 }
             }
 
+            const requiresNoAssertion = boundaryClass === 'positive-infinity'
+                || boundaryClass === 'negative-infinity'
+                || boundaryClass === 'nan';
             sets.push({
                 label: `Param_${param.name}_${sanitizeBoundaryLabel(boundaryClass)}`,
                 description: `Vary ${param.name} to ${boundaryClass}, others at zero`,
@@ -1050,6 +1053,10 @@ export function generateBoundarySets(
                 requiredHeaders: Array.from(headers),
                 paramPreambles: preambles,
                 paramDeclarations: declarations,
+                ...(requiresNoAssertion ? {
+                    noAssertion: true,
+                    testNote: 'result may be infinity or NaN — IEEE 754: NaN != NaN, use std::isinf()/std::isnan() for assertions',
+                } : {}),
             });
         }
     }
