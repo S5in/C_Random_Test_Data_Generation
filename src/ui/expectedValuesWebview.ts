@@ -958,7 +958,8 @@ export class ExpectedValuesWebview {
                             // always well-defined; the user should provide the actual value instead.
                             continue;
                         } else {
-                            lines[i] = `${indent}${assertMacro}(result, ${valueEntry.value});`;
+                            const normalizedValue = ExpectedValuesWebview.normalizeFloatSpecialValue(valueEntry.value);
+                            lines[i] = `${indent}${assertMacro}(result, ${normalizedValue});`;
                             lines.splice(i + 1, 1);
                         }
                     }
@@ -1076,7 +1077,7 @@ export class ExpectedValuesWebview {
                 }
                 customTestsCode += '\n    // Assert\n';
                 
-                const expectedValue = test.expected || '0';
+                const expectedValue = ExpectedValuesWebview.normalizeFloatSpecialValue(test.expected || '0');
                 if (isVoid) {
                     // Find the first pointer parameter — its _val variable holds the side effect
                     const ptrParam = params.find(p => isPointerType(p.type));
@@ -1108,6 +1109,24 @@ export class ExpectedValuesWebview {
      */
     private static normalizeBaseType(t: string): string {
         return t.replace(/\b(const|volatile)\b/g, '').trim().toLowerCase().replace(/\s+/g, ' ');
+    }
+
+    /**
+     * Normalise user-supplied float special-value strings to the correct
+     * uppercase C/C++ macro names so that generated tests compile regardless
+     * of the casing the user typed in the webview.
+     *   nan | NaN | NAN  →  NAN
+     *   inf | Inf | infinity | INFINITY  →  INFINITY
+     *   -inf | -Inf | -infinity | -INFINITY  →  -INFINITY
+     * All other values are returned unchanged.
+     */
+    private static normalizeFloatSpecialValue(value: string): string {
+        const v = value.trim();
+        const upper = v.toUpperCase();
+        if (upper === 'NAN')                           { return 'NAN'; }
+        if (upper === 'INFINITY' || upper === 'INF')   { return 'INFINITY'; }
+        if (upper === '-INFINITY' || upper === '-INF') { return '-INFINITY'; }
+        return v;
     }
     /**
      * Wrap a user-supplied value in C double-quote string literal syntax if it

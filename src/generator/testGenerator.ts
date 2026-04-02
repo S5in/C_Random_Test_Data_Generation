@@ -464,6 +464,7 @@ export class TestGenerator {
 #include <gtest/gtest.h>
 #include <climits>
 #include <cfloat>
+#include <cmath>
 #include <cstddef>
 #include <limits>
 
