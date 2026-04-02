@@ -4,8 +4,8 @@
  * Provides boundary values for primitive C types, pointers, arrays, and structs.
  * Supports density-controlled generation:
  *   - minimal:    min, max, zero per parameter
- *   - standard:   min, min+1, typical, max-1, max  (default)
- *   - exhaustive: all boundary classes including near-zero, infinity, etc.
+ *   - standard:   min, min+1, max-1, max, +Infinity, -Infinity, NaN  (default)
+ *   - exhaustive: all boundary classes including near-zero, epsilon, etc.
  */
 
 import { FunctionParameter, StructInfo } from '../types';
@@ -199,9 +199,9 @@ const BOUNDARY_CATALOG: Record<string, BoundaryValue[]> = {
         { label: 'near-zero-positive',    literal: 'FLT_EPSILON',             requiresHeader: 'cfloat' },
         { label: 'near-zero-negative',    literal: '-FLT_EPSILON',            requiresHeader: 'cfloat' },
         { label: 'smallest-positive',     literal: 'FLT_MIN',                 requiresHeader: 'cfloat' },
-        { label: 'positive-infinity',     literal: 'std::numeric_limits<float>::infinity()',            requiresHeader: 'limits' },
-        { label: 'negative-infinity',     literal: '-std::numeric_limits<float>::infinity()',           requiresHeader: 'limits' },
-        { label: 'nan',                   literal: 'std::numeric_limits<float>::quiet_NaN()',           requiresHeader: 'limits' },
+        { label: 'positive-infinity',     literal: 'INFINITY',                requiresHeader: 'cmath' },
+        { label: 'negative-infinity',     literal: '-INFINITY',               requiresHeader: 'cmath' },
+        { label: 'nan',                   literal: 'NAN',                     requiresHeader: 'cmath' },
     ],
 
     'double': [
@@ -215,9 +215,9 @@ const BOUNDARY_CATALOG: Record<string, BoundaryValue[]> = {
         { label: 'near-zero-positive',    literal: 'DBL_EPSILON',             requiresHeader: 'cfloat' },
         { label: 'near-zero-negative',    literal: '-DBL_EPSILON',            requiresHeader: 'cfloat' },
         { label: 'smallest-positive',     literal: 'DBL_MIN',                 requiresHeader: 'cfloat' },
-        { label: 'positive-infinity',     literal: 'std::numeric_limits<double>::infinity()',           requiresHeader: 'limits' },
-        { label: 'negative-infinity',     literal: '-std::numeric_limits<double>::infinity()',          requiresHeader: 'limits' },
-        { label: 'nan',                   literal: 'std::numeric_limits<double>::quiet_NaN()',          requiresHeader: 'limits' },
+        { label: 'positive-infinity',     literal: 'INFINITY',                requiresHeader: 'cmath' },
+        { label: 'negative-infinity',     literal: '-INFINITY',               requiresHeader: 'cmath' },
+        { label: 'nan',                   literal: 'NAN',                     requiresHeader: 'cmath' },
     ],
 
     'size_t': [
@@ -233,8 +233,8 @@ const BOUNDARY_CATALOG: Record<string, BoundaryValue[]> = {
 // Boundary classes per density level
 // ---------------------------------------------------------------------------
 
-const MINIMAL_CLASSES    = ['minimum', 'maximum', 'zero'];
-const STANDARD_CLASSES   = ['minimum', 'minimum-plus-one', 'maximum-minus-one', 'maximum'];
+const MINIMAL_CLASSES    = ['minimum', 'maximum', 'zero', 'positive-infinity', 'negative-infinity', 'nan'];
+const STANDARD_CLASSES   = ['minimum', 'minimum-plus-one', 'maximum-minus-one', 'maximum', 'positive-infinity', 'negative-infinity', 'nan'];
 const EXHAUSTIVE_CLASSES = [
     'minimum', 'minimum-plus-one', 'minimum-plus-epsilon',
     'null-terminator', 'printable',
@@ -304,6 +304,14 @@ export function getBoundaryValues(type: string): BoundaryValue[] {
 
 export function getBoundariesForType(type: string): BoundaryValue[] {
     return getBoundaryValues(type);
+}
+
+/**
+ * Returns true if the given C literal is an infinity or NaN macro.
+ * Used by the test generator to annotate assertions appropriately.
+ */
+export function isFloatSpecialValue(literal: string): boolean {
+    return literal === 'INFINITY' || literal === '-INFINITY' || literal === 'NAN';
 }
 
 function sanitizeBoundaryLabel(label: string): string {
