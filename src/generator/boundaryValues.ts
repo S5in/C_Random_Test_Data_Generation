@@ -311,7 +311,10 @@ export function getBoundariesForType(type: string): BoundaryValue[] {
  * Used by the test generator to annotate assertions appropriately.
  */
 export function isFloatSpecialValue(literal: string): boolean {
-    return literal === 'INFINITY' || literal === '-INFINITY' || literal === 'NAN';
+    const upper = literal.trim().toUpperCase();
+    return upper === 'INFINITY' || upper === 'INF' ||
+           upper === '-INFINITY' || upper === '-INF' ||
+           upper === 'NAN';
 }
 
 function sanitizeBoundaryLabel(label: string): string {
