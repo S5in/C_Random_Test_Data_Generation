@@ -1087,6 +1087,13 @@ export class ExpectedValuesWebview {
                         customTestsCode += `    // TODO: Assert side effects (e.g., globals)\n`;
                         customTestsCode += `    FAIL() << "Expected side-effect assertion needed for ${functionName}()";\n`;
                     }
+                    } else if (expectedValue === 'NAN') {
+                    // NaN cannot be compared with == (IEEE 754: NaN != NaN)
+                    customTestsCode += `    EXPECT_TRUE(std::isnan(${retVar}));\n`;
+                } else if (expectedValue === 'INFINITY') {
+                    customTestsCode += `    EXPECT_TRUE(std::isinf(${retVar}) && ${retVar} > 0);\n`;
+                } else if (expectedValue === '-INFINITY') {
+                    customTestsCode += `    EXPECT_TRUE(std::isinf(${retVar}) && ${retVar} < 0);\n`;
                 } else {
                     customTestsCode += `    ${customAssertMacro}(${retVar}, ${expectedValue});\n`;
                 }
