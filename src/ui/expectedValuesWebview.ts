@@ -959,7 +959,17 @@ export class ExpectedValuesWebview {
                             continue;
                         } else {
                             const normalizedValue = ExpectedValuesWebview.normalizeFloatSpecialValue(valueEntry.value);
-                            lines[i] = `${indent}${assertMacro}(result, ${normalizedValue});`;
+                            // NaN cannot be compared with == (IEEE 754: NaN != NaN).
+                            // INFINITY/-INFINITY need std::isinf() checks.
+                            if (normalizedValue === 'NAN') {
+                                lines[i] = `${indent}EXPECT_TRUE(std::isnan(result));`;
+                            } else if (normalizedValue === 'INFINITY') {
+                                lines[i] = `${indent}EXPECT_TRUE(std::isinf(result) && result > 0);`;
+                            } else if (normalizedValue === '-INFINITY') {
+                                lines[i] = `${indent}EXPECT_TRUE(std::isinf(result) && result < 0);`;
+                            } else {
+                                lines[i] = `${indent}${assertMacro}(result, ${normalizedValue});`;
+                            }
                             lines.splice(i + 1, 1);
                         }
                     }
@@ -1087,6 +1097,13 @@ export class ExpectedValuesWebview {
                         customTestsCode += `    // TODO: Assert side effects (e.g., globals)\n`;
                         customTestsCode += `    FAIL() << "Expected side-effect assertion needed for ${functionName}()";\n`;
                     }
+                } else if (expectedValue === 'NAN') {
+                    // NaN cannot be compared with == (IEEE 754: NaN != NaN)
+                    customTestsCode += `    EXPECT_TRUE(std::isnan(${retVar}));\n`;
+                } else if (expectedValue === 'INFINITY') {
+                    customTestsCode += `    EXPECT_TRUE(std::isinf(${retVar}) && ${retVar} > 0);\n`;
+                } else if (expectedValue === '-INFINITY') {
+                    customTestsCode += `    EXPECT_TRUE(std::isinf(${retVar}) && ${retVar} < 0);\n`;
                 } else {
                     customTestsCode += `    ${customAssertMacro}(${retVar}, ${expectedValue});\n`;
                 }
