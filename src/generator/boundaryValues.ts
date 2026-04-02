@@ -309,12 +309,12 @@ export function getBoundariesForType(type: string): BoundaryValue[] {
 /**
  * Returns true if the given C literal is an infinity or NaN macro.
  * Used by the test generator to annotate assertions appropriately.
+ * Handles common variants: nan, nanf, nanl, inf, inff, infl, -infinity, etc.
  */
 export function isFloatSpecialValue(literal: string): boolean {
-    const upper = literal.trim().toUpperCase();
-    return upper === 'INFINITY' || upper === 'INF' ||
-           upper === '-INFINITY' || upper === '-INF' ||
-           upper === 'NAN';
+    const v = literal.trim();
+    return /^[+-]?\s*nan[fl]?$/i.test(v) ||
+           /^[+-]?\s*inf(?:inity)?[fl]?$/i.test(v);
 }
 
 function sanitizeBoundaryLabel(label: string): string {
@@ -899,6 +899,10 @@ export function generateBoundarySets(
                     requiredHeaders: Array.from(headers),
                     paramPreambles: preambles,
                     paramDeclarations: declarations,
+                    // When float/double params are at extremes, arithmetic may overflow to ±Inf or NaN.
+                    ...(hasFloatingExtreme(params, values)
+                        ? { testNote: 'Extreme float/double values may cause overflow (Inf) or NaN' }
+                        : {}),
                 });
             }
             continue;
@@ -1137,6 +1141,11 @@ export function generateBoundarySets(
             requiredHeaders: Array.from(headers),
             paramPreambles: preambles,
             paramDeclarations: declarations,
+            // When all float/double params are at extremes (min/max),
+            // arithmetic often overflows to ±Inf or produces NaN.
+            ...(combo.boundary !== 'typical' && hasFloatingExtreme(params, values)
+                ? { testNote: 'Extreme float/double values may cause overflow (Inf) or NaN' }
+                : {}),
         });
     }
 
@@ -1197,13 +1206,36 @@ export function generateBoundarySets(
                 requiredHeaders: Array.from(headers),
                 paramPreambles: preambles,
                 paramDeclarations: declarations,
+                // Mixed min/max with float/double params often overflows.
+                ...(hasFloatingExtreme(params, values)
+                    ? { testNote: 'Extreme float/double values may cause overflow (Inf) or NaN' }
+                    : {}),
             });
         }
     }
 
     return deduplicateSets(sets);
 }
-
+// Helper: detect if any float/double param is set to an extreme boundary value
+// ---------------------------------------------------------------------------
+function hasFloatingExtreme(
+    params: FunctionParameter[],
+    values: string[]
+): boolean {
+    const FLOAT_EXTREMES = new Set([
+        '-FLT_MAX', 'FLT_MAX', '-DBL_MAX', 'DBL_MAX',
+        '(-FLT_MAX + FLT_EPSILON)', '(FLT_MAX - FLT_EPSILON)',
+        '(-DBL_MAX + DBL_EPSILON)', '(DBL_MAX - DBL_EPSILON)',
+    ]);
+    for (let i = 0; i < params.length; i++) {
+        const nt = normalizeType(params[i].type);
+        if ((nt === 'float' || nt === 'double') && FLOAT_EXTREMES.has(values[i])) {
+            return true;
+        }
+    }
+    return false;
+}
+// ---------------------------------------------------------------------------
 // ---------------------------------------------------------------------------
 // Deduplication helper
 // ---------------------------------------------------------------------------

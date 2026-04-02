@@ -567,6 +567,13 @@ ${externBlock}
     }
 
     /**
+     * Check if a return type is a floating-point type (float or double).
+     */
+    private static isFloatingReturn(returnType: string): boolean {
+        const rt = returnType.trim().toLowerCase();
+        return rt === 'float' || rt === 'double';
+    }
+    /**
      * Choose a variable name for the function return value that does not shadow
      * any parameter name.  Falls back through 'result' → 'actual' → 'retval'.
      */
@@ -596,7 +603,9 @@ ${externBlock}
     /**
      * Emit the Assert section, adapting to void vs. non-void return types.
      * For void functions: emits a TODO comment about asserting side effects.
-     * For non-void functions: emits FAIL() with the result value.
+     * For non-void float/double functions with special float inputs: emits
+     *   EXPECT_TRUE(isnan || isinf) since equality macros fail for NaN/Inf.
+     * For other non-void functions: emits FAIL() with the result value.
      * @param paramNames - the parameter names used in this test (needed to pick a
 *                     non-conflicting return-value variable name).
      */
