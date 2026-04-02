@@ -11,7 +11,7 @@
  */
 
 import { FunctionInfo, FunctionParameter, GlobalVariable, StructInfo } from '../types';
-import { generateBoundarySets, getBoundariesForType, TestDensity, isPointerType, isArrayType, isStructType, detectArraySizePairs, getBoundaryValues } from './boundaryValues';
+import { generateBoundarySets, getBoundariesForType, TestDensity, isPointerType, isArrayType, isStructType, detectArraySizePairs, getBoundaryValues, isFloatSpecialValue } from './boundaryValues';
 
 export interface TestCaseInfo {
     testName: string;
@@ -601,13 +601,16 @@ ${externBlock}
      */
     private static emitAssert(
         func: FunctionInfo,
-        set?: { testNote?: string; noAssertion?: boolean },
+        set?: { testNote?: string; noAssertion?: boolean; values?: string[] },
         paramNames: string[] = []
     ): string {
         const retVar = this.safeReturnVar(paramNames);
         let code = '    // Assert\n';
         if (set?.testNote) {
             code += `    // NOTE: ${set.testNote}\n`;
+        }
+        if (set?.values?.some(v => isFloatSpecialValue(v))) {
+            code += '    // Note: result may be Inf or NaN \u2014 use std::isinf() / std::isnan() for assertions\n';
         }
         if (this.isVoidReturn(func.returnType)) {
             code += '    // TODO: Assert side effects (e.g., modified pointer targets, globals)\n';
