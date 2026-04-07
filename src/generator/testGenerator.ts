@@ -357,11 +357,9 @@ export class TestGenerator {
             code += this.emitAct(func, paramNames);
             code += '\n';
             // Detect if any param value is NaN/Inf or if extreme float boundary
-            // values could cause overflow.  Same-sign extremes (AllMinimums,
-            // AllMaximums) are likely to overflow for additive operations while
-            // staying finite for divisive ones.  We set expectsOverflow so the
-            // assertion passes for overflow cases, with a TODO so the webview can
-            // help users replace it when the result is actually finite.
+            // values are present.  When extreme floats are detected, emitAssert()
+            // emits a SUCCEED() smoke test (always passes) with a TODO comment so
+            // the webview can help users replace it with a precise expected value.
             const hasSpecial = comboValues.some(v => isFloatSpecialValue(v));
             const isExtremeBoundary = paramBoundaryLabel === 'minimum' || paramBoundaryLabel === 'maximum';
             const hasFloatParam = func.parameters.some(p => {
