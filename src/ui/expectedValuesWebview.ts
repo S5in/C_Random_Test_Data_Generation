@@ -937,8 +937,8 @@ export class ExpectedValuesWebview {
 
                 if (line.includes('// TODO: Provide expected value')) {
                     const valueEntry = values.find(v => v.index === testIndex);
-                    // Match FAIL() or the EXPECT_TRUE(std::isnan...) placeholder
-                    // emitted by testGenerator for float-special-value inputs.
+                    // Match FAIL() (current generator) or the legacy
+                    // EXPECT_TRUE(std::isnan...) placeholder from older versions.
                     if (valueEntry && i + 1 < lines.length &&
                         (lines[i + 1].includes('FAIL()') || lines[i + 1].includes('EXPECT_TRUE(std::isnan'))) {
                         const indent = lines[i + 1].match(/^\s*/)?.[0] || '    ';
