@@ -940,7 +940,7 @@ export class ExpectedValuesWebview {
                     // Match FAIL() or the EXPECT_TRUE(std::isnan...) placeholder
                     // emitted by testGenerator for float-special-value inputs.
                     if (valueEntry && i + 1 < lines.length &&
-                        (lines[i + 1].includes('FAIL()') || lines[i + 1].includes('EXPECT_TRUE(std::isnan'))) {
+                        (lines[i + 1].includes('FAIL()') || lines[i + 1].includes('EXPECT_TRUE(std::isnan') || lines[i + 1].includes('SUCCEED()'))) {
                         const indent = lines[i + 1].match(/^\s*/)?.[0] || '    ';
                         // Extract the return variable name from the assertion line
                         // (could be 'result', 'actual', or 'retval' depending on param names).
