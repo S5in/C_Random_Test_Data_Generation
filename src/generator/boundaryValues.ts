@@ -107,6 +107,14 @@ export interface BoundarySet {
      * can see the inputs that would trigger the UB.
      */
     skipReason?: string;
+
+        /**
+     * When true, the result is likely to be NaN or ±Inf due to arithmetic
+     * overflow from extreme boundary inputs (e.g., FLT_MAX * FLT_MAX).
+     * emitAssert() uses a permissive EXPECT_TRUE(std::isnan || std::isinf)
+     * instead of FAIL().
+     */
+    expectsOverflow?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -901,7 +909,8 @@ export function generateBoundarySets(
                     paramDeclarations: declarations,
                     // When float/double params are at extremes, arithmetic may overflow to ±Inf or NaN.
                     ...(hasFloatingExtreme(params, values)
-                        ? { testNote: 'Extreme float/double values may cause overflow (Inf) or NaN' }
+                        ? { testNote: 'Extreme float/double values may cause overflow (Inf) or NaN',
+                            expectsOverflow: true }
                         : {}),
                 });
             }

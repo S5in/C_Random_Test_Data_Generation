@@ -317,6 +317,7 @@ export class TestGenerator {
                 const bv = boundaries.find(b => b.label === globalBoundaryLabel);
                 if (bv) { code += `    ${global.name} = ${bv.literal};\n`; }
             }
+            const comboValues: string[] = [];
             if (func.parameters.length > 0) {
                 code += '\n';
                 for (let pIdx = 0; pIdx < func.parameters.length; pIdx++) {
@@ -324,7 +325,9 @@ export class TestGenerator {
                     if (sizeToArr.has(pIdx)) {
                         // Paired size param — use array-aware value
                         const sizeMap: Record<string, string> = { 'minimum': '0', 'maximum': '3' };
-                        code += `    ${param.type} ${param.name} = ${sizeMap[paramBoundaryLabel] || '3'};\n`;
+                        const val = sizeMap[paramBoundaryLabel] || '3';
+                        code += `    ${param.type} ${param.name} = ${val};\n`;
+                        comboValues.push(val);
                     } else if (pairs.has(pIdx)) {
                         // Paired array param — ascending content proportional to size
                         const arrSizeMap: Record<string, number> = { 'minimum': 1, 'maximum': 3 };
@@ -332,15 +335,19 @@ export class TestGenerator {
                         const base = param.type.replace(/\s*\[.*?\]\s*$/, '').trim();
                         const content = Array.from({ length: arrSize }, (_, i) => `${i + 1}`).join(', ');
                         code += `    ${base} ${param.name}[${arrSize}] = {${content}};\n`;
+                        comboValues.push(`{${content}}`);
                     } else if (isPointerType(param.type) || isArrayType(param.type) || isStructType(param.type)) {
                         code += this.buildSafeParamDeclaration(param);
+                        comboValues.push('0');
                     } else {
                         const boundaries = getBoundariesForType(param.type);
                         const bv = boundaries.find(b => b.label === paramBoundaryLabel);
                         if (bv) {
                             code += `    ${param.type} ${param.name} = ${bv.literal};\n`;
+                            comboValues.push(bv.literal);
                         } else {
                             code += this.buildSafeParamDeclaration(param);
+                            comboValues.push('0');
                         }
                     }
                 }
@@ -349,7 +356,16 @@ export class TestGenerator {
             const paramNames = func.parameters.length > 0 ? func.parameters.map(p => p.name) : [];
             code += this.emitAct(func, paramNames);
             code += '\n';
-            code += this.emitAssert(func, undefined, paramNames);
+            // Detect if any param value is NaN/Inf or if extreme float boundary
+            // values could cause overflow.
+            const hasSpecial = comboValues.some(v => isFloatSpecialValue(v));
+            const isExtremeBoundary = paramBoundaryLabel === 'minimum' || paramBoundaryLabel === 'maximum';
+            const hasFloatParam = func.parameters.some(p => {
+                const t = p.type.trim().toLowerCase();
+                return t === 'float' || t === 'double';
+            });
+            const expectsOverflow = isExtremeBoundary && hasFloatParam;
+            code += this.emitAssert(func, { values: comboValues, expectsOverflow: expectsOverflow || hasSpecial }, paramNames);
             code += '}\n\n';
             cases.push({ testName: comboLabel, inputs: `Globals=${globalBoundaryLabel}, Params=${paramBoundaryLabel}`, paramValues: [], globalValues: [] });
         };
@@ -605,21 +621,24 @@ ${externBlock}
      * For void functions: emits a TODO comment about asserting side effects.
      * For non-void float/double functions with special float inputs: emits
      *   EXPECT_TRUE(isnan || isinf) since equality macros fail for NaN/Inf.
+     * For non-void float/double functions with overflow risk: emits
+     *   EXPECT_TRUE(isnan || isinf) since extreme values often overflow.
      * For other non-void functions: emits FAIL() with the result value.
      * @param paramNames - the parameter names used in this test (needed to pick a
 *                     non-conflicting return-value variable name).
      */
     private static emitAssert(
         func: FunctionInfo,
-        set?: { testNote?: string; noAssertion?: boolean; values?: string[] },
+        set?: { testNote?: string; noAssertion?: boolean; values?: string[]; expectsOverflow?: boolean },
         paramNames: string[] = []
     ): string {
         const retVar = this.safeReturnVar(paramNames);
+        const hasSpecialFloatInput = set?.values?.some(v => isFloatSpecialValue(v)) ?? false;
         let code = '    // Assert\n';
         if (set?.testNote) {
             code += `    // NOTE: ${set.testNote}\n`;
         }
-        if (set?.values?.some(v => isFloatSpecialValue(v))) {
+        if (hasSpecialFloatInput) {
             code += '    // Note: result may be Inf or NaN \u2014 use std::isinf() / std::isnan() for assertions\n';
         }
         if (this.isVoidReturn(func.returnType)) {
@@ -627,6 +646,13 @@ ${externBlock}
             code += `    FAIL() << "Expected side-effect assertion needed for ${func.name}()";\n`;
         } else if (set?.noAssertion) {
             code += `    (void)${retVar}; // No assertion \u2014 see note above\n`;
+        } else if ((hasSpecialFloatInput || set?.expectsOverflow) && this.isFloatingReturn(func.returnType)) {
+            // When inputs include NaN / Inf, or extreme boundary values that
+            // may overflow, and the return type is floating-point, the result
+            // is most likely NaN or Inf and cannot be compared with
+            // EXPECT_FLOAT_EQ / EXPECT_DOUBLE_EQ (IEEE 754: NaN != NaN).
+            code += '    // TODO: Provide expected value\n';
+            code += `    EXPECT_TRUE(std::isnan(${retVar}) || std::isinf(${retVar})) << "Got: " << ${retVar};\n`;
         } else {
             code += '    // TODO: Provide expected value\n';
             code += `    FAIL() << "Expected value needed. Got: " << ${retVar};\n`;
