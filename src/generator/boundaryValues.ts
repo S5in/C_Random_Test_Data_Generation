@@ -1176,11 +1176,11 @@ export function generateBoundarySets(
             requiredHeaders: Array.from(headers),
             paramPreambles: preambles,
             paramDeclarations: declarations,
-            // When all float/double params are at extremes (min/max),
-            // arithmetic often overflows to ±Inf or produces NaN.
+            // When all float/double params are at extremes (min/max), the result
+            // depends on function semantics: add(FLT_MAX, FLT_MAX) overflows to Inf,
+            // but divide(FLT_MAX, FLT_MAX) = 1.0.  Emit a TODO placeholder.
             ...(combo.boundary !== 'typical' && hasFloatingExtreme(params, values)
-                ? { testNote: 'Extreme float/double values may cause overflow (Inf) or NaN',
-                    expectsOverflow: true }
+                ? { testNote: 'Extreme float/double values \u2014 result depends on function semantics' }
                 : {}),
         });
     }

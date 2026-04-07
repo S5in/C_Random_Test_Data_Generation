@@ -356,16 +356,11 @@ export class TestGenerator {
             const paramNames = func.parameters.length > 0 ? func.parameters.map(p => p.name) : [];
             code += this.emitAct(func, paramNames);
             code += '\n';
-            // Detect if any param value is NaN/Inf or if extreme float boundary
-            // values could cause overflow.
+            // Pass special-float flag but NOT expectsOverflow — the result of
+            // multi-param extreme-float combos depends on the function's semantics
+            // (e.g. add(FLT_MAX, FLT_MAX) = Inf, but divide(FLT_MAX, FLT_MAX) = 1).
             const hasSpecial = comboValues.some(v => isFloatSpecialValue(v));
-            const isExtremeBoundary = paramBoundaryLabel === 'minimum' || paramBoundaryLabel === 'maximum';
-            const hasFloatParam = func.parameters.some(p => {
-                const t = p.type.trim().toLowerCase();
-                return t === 'float' || t === 'double';
-            });
-            const expectsOverflow = isExtremeBoundary && hasFloatParam;
-            code += this.emitAssert(func, { values: comboValues, expectsOverflow: expectsOverflow || hasSpecial }, paramNames);
+            code += this.emitAssert(func, { values: comboValues, expectsOverflow: hasSpecial }, paramNames);
             code += '}\n\n';
             cases.push({ testName: comboLabel, inputs: `Globals=${globalBoundaryLabel}, Params=${paramBoundaryLabel}`, paramValues: [], globalValues: [] });
         };
