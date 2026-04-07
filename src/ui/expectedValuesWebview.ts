@@ -967,8 +967,19 @@ export class ExpectedValuesWebview {
                             continue;
                         } else {
                             const normalizedValue = ExpectedValuesWebview.normalizeFloatSpecialValue(valueEntry.value);
-                            lines[i] = `${indent}${assertMacro}(result, ${normalizedValue});`;
-                            lines.splice(i + 1, 1);
+                            if (normalizedValue === 'NAN') {
+                                lines[i] = `${indent}EXPECT_TRUE(std::isnan(${retVar}));`;
+                                lines.splice(i + 1, 1);
+                            } else if (normalizedValue === 'INFINITY') {
+                                lines[i] = `${indent}EXPECT_TRUE(std::isinf(${retVar}) && ${retVar} > 0);`;
+                                lines.splice(i + 1, 1);
+                            } else if (normalizedValue === '-INFINITY') {
+                                lines[i] = `${indent}EXPECT_TRUE(std::isinf(${retVar}) && ${retVar} < 0);`;
+                                lines.splice(i + 1, 1);
+                            } else {
+                                lines[i] = `${indent}${assertMacro}(${retVar}, ${normalizedValue});`;
+                                lines.splice(i + 1, 1);
+                            }
                         }
                     }
                 }
