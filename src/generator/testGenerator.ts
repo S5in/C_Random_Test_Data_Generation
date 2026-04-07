@@ -769,10 +769,17 @@ ${externBlock}
             }
         }
 
-        // Multi-param overflow or other Inf/extreme case: the actual result
-        // depends on function semantics (e.g. divide(FLT_MAX, 1.0f) = FLT_MAX,
+        // Multi-param overflow: when all float/double params are at extremes
+        // (e.g. add(FLT_MAX, FLT_MAX) → Inf), the result is guaranteed to be
+        // ±Inf or NaN.  Emit a valid assertion — no TODO needed.
+        if (expectsOverflow) {
+            return `    EXPECT_TRUE(std::isnan(${retVar}) || std::isinf(${retVar})) << "Got: " << ${retVar};\n`;
+        }
+
+        // Other Inf/extreme case: the actual result depends on function
+        // semantics (e.g. divide(FLT_MAX, 1.0f) = FLT_MAX,
         // divide(1.0f, INFINITY) = 0).  Emit a placeholder for the user.
-        if (hasSpecialFloatInput || expectsOverflow) {
+        if (hasSpecialFloatInput) {
             return '    // TODO: Provide expected value (Inf / extreme inputs \u2014 result depends on function semantics)\n' +
                    `    FAIL() << "Expected value needed. Got: " << ${retVar};\n`;
         }
