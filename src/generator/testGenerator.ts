@@ -11,7 +11,7 @@
  */
 
 import { FunctionInfo, FunctionParameter, GlobalVariable, StructInfo } from '../types';
-import { generateBoundarySets, getBoundariesForType, TestDensity, isPointerType, isArrayType, isStructType, detectArraySizePairs, getBoundaryValues, isFloatSpecialValue } from './boundaryValues';
+import { generateBoundarySets, getBoundariesForType, TestDensity, isPointerType, isArrayType, isStructType, detectArraySizePairs, getBoundaryValues, isFloatSpecialValue, isNegativeFiniteFloat } from './boundaryValues';
 
 export interface TestCaseInfo {
     testName: string;
@@ -576,6 +576,42 @@ ${externBlock}
     }
 
     /**
+     * Positive finite extreme float/double boundary literals for which standard
+     * math functions always produce a valid, deterministic result.
+     * Used to detect `Param_x_Max`-style test cases where a stdlib oracle assertion
+     * (`EXPECT_FLOAT_EQ(result, sqrtf(FLT_MAX))`) is safe and correct.
+     */
+    private static readonly POSITIVE_FLOAT_EXTREMES = new Set([
+        'FLT_MAX', 'DBL_MAX',
+        '(FLT_MAX - FLT_EPSILON)', '(DBL_MAX - DBL_EPSILON)',
+    ]);
+
+    /**
+     * Map of known C math function names to their stdlib equivalents and domain
+     * constraints.  Entries cover both the raw stdlib names and common wrapper
+     * naming conventions (e.g. my_sqrt).
+     */
+    private static readonly MATH_FUNC_DOMAINS: Record<string, {
+        requiresNonNegative: boolean;
+        stdLibFloat: string;
+        stdLibDouble: string;
+    }> = {
+        'my_sqrt':  { requiresNonNegative: true,  stdLibFloat: 'sqrtf',  stdLibDouble: 'sqrt'  },
+        'sqrt':     { requiresNonNegative: true,  stdLibFloat: 'sqrtf',  stdLibDouble: 'sqrt'  },
+        'sqrtf':    { requiresNonNegative: true,  stdLibFloat: 'sqrtf',  stdLibDouble: 'sqrt'  },
+        'log':      { requiresNonNegative: true,  stdLibFloat: 'logf',   stdLibDouble: 'log'   },
+        'logf':     { requiresNonNegative: true,  stdLibFloat: 'logf',   stdLibDouble: 'log'   },
+        'log2':     { requiresNonNegative: true,  stdLibFloat: 'log2f',  stdLibDouble: 'log2'  },
+        'log2f':    { requiresNonNegative: true,  stdLibFloat: 'log2f',  stdLibDouble: 'log2'  },
+        'log10':    { requiresNonNegative: true,  stdLibFloat: 'log10f', stdLibDouble: 'log10' },
+        'log10f':   { requiresNonNegative: true,  stdLibFloat: 'log10f', stdLibDouble: 'log10' },
+        'asin':     { requiresNonNegative: false, stdLibFloat: 'asinf',  stdLibDouble: 'asin'  },
+        'asinf':    { requiresNonNegative: false, stdLibFloat: 'asinf',  stdLibDouble: 'asin'  },
+        'acos':     { requiresNonNegative: false, stdLibFloat: 'acosf',  stdLibDouble: 'acos'  },
+        'acosf':    { requiresNonNegative: false, stdLibFloat: 'acosf',  stdLibDouble: 'acos'  },
+    };
+
+    /**
      * Check if a return type is void (no value to capture).
      */
     private static isVoidReturn(returnType: string): boolean {
@@ -618,11 +654,16 @@ ${externBlock}
 
     /**
      * Emit the Assert section, adapting to void vs. non-void return types.
+     *
+     * Special handling for floating-point return types:
+     * - NaN input                                          → EXPECT_TRUE(std::isnan)
+     * - Negative-infinity input to a math-like function   → EXPECT_TRUE(std::isnan)
+     * - Positive-infinity input, single-param math func   → EXPECT_TRUE(std::isinf && > 0)
+     * - Negative finite input, single-param function      → EXPECT_TRUE(std::isnan) (domain violation)
+     * - Extreme positive input, single-param known func   → EXPECT_FLOAT/DOUBLE_EQ(stdlib(input))
+     * - Inf/extreme multi-param or unknown                → FAIL() + TODO placeholder
+     *
      * For void functions: emits a TODO comment about asserting side effects.
-     * For non-void float/double functions with special float inputs: emits
-     *   EXPECT_TRUE(isnan || isinf) since equality macros fail for NaN/Inf.
-     * For non-void float/double functions with overflow risk: emits
-     *   EXPECT_TRUE(isnan || isinf) since extreme values often overflow.
      * For other non-void functions: emits FAIL() with the result value.
      * @param paramNames - the parameter names used in this test (needed to pick a
 *                     non-conflicting return-value variable name).
@@ -633,10 +674,11 @@ ${externBlock}
         paramNames: string[] = []
     ): string {
         const retVar = this.safeReturnVar(paramNames);
-        const hasSpecialFloatInput = set?.values?.some(v => isFloatSpecialValue(v)) ?? false;
+        const vals = set?.values ?? [];
+        const hasSpecialFloatInput = vals.some(v => isFloatSpecialValue(v));
         // NaN propagates through virtually all arithmetic — a safe assertion
         // that does not require the user to supply an expected value.
-        const hasNaNInput = set?.values?.some(v => /^[+-]?\s*nan[fl]?$/i.test(v.trim())) ?? false;
+        const hasNaNInput = vals.some(v => /^[+-]?\s*nan[fl]?$/i.test(v.trim()));
         let code = '    // Assert\n';
         if (set?.testNote) {
             code += `    // NOTE: ${set.testNote}\n`;
@@ -654,18 +696,88 @@ ${externBlock}
             // this assertion is universally correct without user input.
             // No TODO comment — the assertion is already valid.
             code += `    EXPECT_TRUE(std::isnan(${retVar})) << "Got: " << ${retVar};\n`;
-        } else if ((hasSpecialFloatInput || set?.expectsOverflow) && this.isFloatingReturn(func.returnType)) {
-            // Inf / extreme boundary values — the actual result depends on
-            // the function semantics and may be finite, Inf, or NaN (e.g.
-            // divide(FLT_MAX, 1.0f) = FLT_MAX, divide(1.0f, INFINITY) = 0).
-            // Emit a placeholder so the user provides the correct expected
-            // value via the Expected Values panel.
-            code += '    // TODO: Provide expected value (Inf / extreme inputs \u2014 result depends on function semantics)\n';
-            code += `    FAIL() << "Expected value needed. Got: " << ${retVar};\n`;
+        } else if (this.isFloatingReturn(func.returnType)) {
+            code += this.emitFloatAssert(func, vals, retVar, hasSpecialFloatInput, set?.expectsOverflow ?? false);
         } else {
             code += '    // TODO: Provide expected value\n';
             code += `    FAIL() << "Expected value needed. Got: " << ${retVar};\n`;
         }
         return code;
+    }
+
+    /**
+     * Emit the float/double-specific assertion body.  Called when the return type
+     * is float or double and the input is not a NaN literal.
+     */
+    private static emitFloatAssert(
+        func: FunctionInfo,
+        vals: string[],
+        retVar: string,
+        hasSpecialFloatInput: boolean,
+        expectsOverflow: boolean
+    ): string {
+        const isSingleParam = func.parameters.length === 1;
+        const hasNegInfInput = vals.some(v => /^-\s*inf(?:inity)?[fl]?$/i.test(v.trim()));
+        const hasPosInfInput = vals.some(v => /^[+]?\s*inf(?:inity)?[fl]?$/i.test(v.trim()));
+        const hasNegFiniteInput = vals.some(v => isNegativeFiniteFloat(v));
+        const domain = TestGenerator.MATH_FUNC_DOMAINS[func.name];
+
+        // -INFINITY input to a known math function always produces NaN
+        // (e.g. sqrt(-∞) = NaN, log(-∞) = NaN, asin(-∞) = NaN).
+        // Restrict to functions in MATH_FUNC_DOMAINS to avoid false assertions for
+        // functions like exp(-∞) = 0.0 that have well-defined finite results.
+        if (hasNegInfInput && isSingleParam && domain) {
+            return `    EXPECT_TRUE(std::isnan(${retVar})) << "Got: " << ${retVar};\n`;
+        }
+
+        // +INFINITY input to a single-param function that maps +∞ to +∞:
+        // sqrt(+∞) = +∞, log(+∞) = +∞.  This only holds for functions with a
+        // non-negative domain (requiresNonNegative: true).
+        if (hasPosInfInput && isSingleParam && domain?.requiresNonNegative) {
+            return `    EXPECT_TRUE(std::isinf(${retVar}) && ${retVar} > 0) << "Got: " << ${retVar};\n`;
+        }
+
+        // +INFINITY to a bounded-domain function (asin, acos) is also NaN since
+        // +∞ lies outside the domain [-1, 1].
+        if (hasPosInfInput && isSingleParam && domain && !domain.requiresNonNegative) {
+            return `    EXPECT_TRUE(std::isnan(${retVar})) << "Got: " << ${retVar};\n`;
+        }
+
+        // Negative finite input to a single-param float function is a likely
+        // domain violation (e.g. sqrt(-x) = NaN per IEEE 754).
+        if (hasNegFiniteInput && isSingleParam) {
+            return '    // Likely a domain violation (negative input); result should be NaN per IEEE 754\n' +
+                   `    EXPECT_TRUE(std::isnan(${retVar})) << "Got: " << ${retVar};\n`;
+        }
+
+        // Extreme positive input to a single-param known math function with a
+        // non-negative domain: use the corresponding stdlib function as the oracle.
+        // (e.g. sqrtf(FLT_MAX) is a perfectly valid finite number.)
+        // Gate behind requiresNonNegative to avoid cases where extreme positive
+        // inputs are also outside the function's domain (e.g. asin(FLT_MAX) = NaN).
+        const hasPositiveExtreme = vals.some(v => TestGenerator.POSITIVE_FLOAT_EXTREMES.has(v.trim()));
+        if ((hasPositiveExtreme || expectsOverflow) && isSingleParam && domain?.requiresNonNegative) {
+            const stdLib = func.returnType.trim().toLowerCase() === 'float'
+                ? domain.stdLibFloat : domain.stdLibDouble;
+            // BoundarySet.values has exactly one entry per function parameter,
+            // so vals[0] is the single parameter's value when isSingleParam is true.
+            const inputVal = vals[0];
+            if (inputVal) {
+                const eqMacro = func.returnType.trim().toLowerCase() === 'float'
+                    ? 'EXPECT_FLOAT_EQ' : 'EXPECT_DOUBLE_EQ';
+                return `    ${eqMacro}(${retVar}, ${stdLib}(${inputVal}));\n`;
+            }
+        }
+
+        // Multi-param overflow or other Inf/extreme case: the actual result
+        // depends on function semantics (e.g. divide(FLT_MAX, 1.0f) = FLT_MAX,
+        // divide(1.0f, INFINITY) = 0).  Emit a placeholder for the user.
+        if (hasSpecialFloatInput || expectsOverflow) {
+            return '    // TODO: Provide expected value (Inf / extreme inputs \u2014 result depends on function semantics)\n' +
+                   `    FAIL() << "Expected value needed. Got: " << ${retVar};\n`;
+        }
+
+        return '    // TODO: Provide expected value\n' +
+               `    FAIL() << "Expected value needed. Got: " << ${retVar};\n`;
     }
 }
