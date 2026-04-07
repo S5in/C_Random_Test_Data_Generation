@@ -601,10 +601,16 @@ ${externBlock}
         'my_sqrt':  { requiresNonNegative: true,  stdLibFloat: 'sqrtf',  stdLibDouble: 'sqrt'  },
         'sqrt':     { requiresNonNegative: true,  stdLibFloat: 'sqrtf',  stdLibDouble: 'sqrt'  },
         'sqrtf':    { requiresNonNegative: true,  stdLibFloat: 'sqrtf',  stdLibDouble: 'sqrt'  },
+        'my_log':   { requiresNonNegative: true,  stdLibFloat: 'logf',   stdLibDouble: 'log'   },
+        'my_logf':  { requiresNonNegative: true,  stdLibFloat: 'logf',   stdLibDouble: 'log'   },
         'log':      { requiresNonNegative: true,  stdLibFloat: 'logf',   stdLibDouble: 'log'   },
         'logf':     { requiresNonNegative: true,  stdLibFloat: 'logf',   stdLibDouble: 'log'   },
+        'my_log2':  { requiresNonNegative: true,  stdLibFloat: 'log2f',  stdLibDouble: 'log2'  },
+        'my_log2f': { requiresNonNegative: true,  stdLibFloat: 'log2f',  stdLibDouble: 'log2'  },
         'log2':     { requiresNonNegative: true,  stdLibFloat: 'log2f',  stdLibDouble: 'log2'  },
         'log2f':    { requiresNonNegative: true,  stdLibFloat: 'log2f',  stdLibDouble: 'log2'  },
+        'my_log10':  { requiresNonNegative: true,  stdLibFloat: 'log10f', stdLibDouble: 'log10' },
+        'my_log10f': { requiresNonNegative: true,  stdLibFloat: 'log10f', stdLibDouble: 'log10' },
         'log10':    { requiresNonNegative: true,  stdLibFloat: 'log10f', stdLibDouble: 'log10' },
         'log10f':   { requiresNonNegative: true,  stdLibFloat: 'log10f', stdLibDouble: 'log10' },
         'asin':     { requiresNonNegative: false, stdLibFloat: 'asinf',  stdLibDouble: 'asin'  },
@@ -779,6 +785,21 @@ ${externBlock}
         if (expectsOverflow || hasSpecialFloatInput) {
             return '    // TODO: Provide expected value\n' +
                    `    SUCCEED() << "Expected value needed. Got: " << ${retVar};\n`;
+        }
+
+        // Normal input to a known single-param math function: use the stdlib
+        // function as an oracle so the test passes automatically.
+        // E.g. my_log(0.0f) → EXPECT_FLOAT_EQ(result, logf(0.0f))
+        // This covers the Baseline_AllZero test and any other nominal input.
+        if (isSingleParam && domain) {
+            const stdLib = func.returnType.trim().toLowerCase() === 'float'
+                ? domain.stdLibFloat : domain.stdLibDouble;
+            const inputVal = vals[0];
+            if (inputVal) {
+                const eqMacro = func.returnType.trim().toLowerCase() === 'float'
+                    ? 'EXPECT_FLOAT_EQ' : 'EXPECT_DOUBLE_EQ';
+                return `    ${eqMacro}(${retVar}, ${stdLib}(${inputVal}));\n`;
+            }
         }
 
         return '    // TODO: Provide expected value\n' +
