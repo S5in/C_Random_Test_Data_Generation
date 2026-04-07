@@ -634,11 +634,14 @@ ${externBlock}
     ): string {
         const retVar = this.safeReturnVar(paramNames);
         const hasSpecialFloatInput = set?.values?.some(v => isFloatSpecialValue(v)) ?? false;
+        // NaN propagates through virtually all arithmetic — a safe assertion
+        // that does not require the user to supply an expected value.
+        const hasNaNInput = set?.values?.some(v => /^[+-]?\s*nan[fl]?$/i.test(v.trim())) ?? false;
         let code = '    // Assert\n';
         if (set?.testNote) {
             code += `    // NOTE: ${set.testNote}\n`;
         }
-        if (hasSpecialFloatInput) {
+        if (hasSpecialFloatInput && !hasNaNInput) {
             code += '    // Note: result may be Inf or NaN \u2014 use std::isinf() / std::isnan() for assertions\n';
         }
         if (this.isVoidReturn(func.returnType)) {
@@ -646,13 +649,19 @@ ${externBlock}
             code += `    FAIL() << "Expected side-effect assertion needed for ${func.name}()";\n`;
         } else if (set?.noAssertion) {
             code += `    (void)${retVar}; // No assertion \u2014 see note above\n`;
+        } else if (hasNaNInput && this.isFloatingReturn(func.returnType)) {
+            // NaN propagates through all standard arithmetic operations —
+            // this assertion is universally correct without user input.
+            // No TODO comment — the assertion is already valid.
+            code += `    EXPECT_TRUE(std::isnan(${retVar})) << "Got: " << ${retVar};\n`;
         } else if ((hasSpecialFloatInput || set?.expectsOverflow) && this.isFloatingReturn(func.returnType)) {
-            // When inputs include NaN / Inf, or extreme boundary values that
-            // may overflow, and the return type is floating-point, the result
-            // is most likely NaN or Inf and cannot be compared with
-            // EXPECT_FLOAT_EQ / EXPECT_DOUBLE_EQ (IEEE 754: NaN != NaN).
-            // No TODO comment — the assertion below is already valid.
-            code += `    EXPECT_TRUE(std::isnan(${retVar}) || std::isinf(${retVar})) << "Got: " << ${retVar};\n`;
+            // Inf / extreme boundary values — the actual result depends on
+            // the function semantics and may be finite, Inf, or NaN (e.g.
+            // divide(FLT_MAX, 1.0f) = FLT_MAX, divide(1.0f, INFINITY) = 0).
+            // Emit a placeholder so the user provides the correct expected
+            // value via the Expected Values panel.
+            code += '    // TODO: Provide expected value (Inf / extreme inputs \u2014 result depends on function semantics)\n';
+            code += `    FAIL() << "Expected value needed. Got: " << ${retVar};\n`;
         } else {
             code += '    // TODO: Provide expected value\n';
             code += `    FAIL() << "Expected value needed. Got: " << ${retVar};\n`;
