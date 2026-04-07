@@ -612,31 +612,6 @@ ${externBlock}
     };
 
     /**
-     * Heuristic: returns true if the function name is a known math function or
-     * contains a common math-function substring (e.g. "my_sqrt" contains "sqrt").
-     */
-    private static looksLikeMathFunc(name: string): boolean {
-        if (name in this.MATH_FUNC_DOMAINS) { return true; }
-        const lower = name.toLowerCase();
-        const MATH_SUBSTRINGS = ['sqrt', 'cbrt', 'log', 'exp', 'pow', 'hypot',
-                                 'asin', 'acos', 'atan', 'sin', 'cos', 'tan'];
-        return MATH_SUBSTRINGS.some(sub => lower.includes(sub));
-    }
-
-    /**
-     * For a function in MATH_FUNC_DOMAINS, return the appropriate stdlib equivalent
-     * (e.g. 'sqrtf' for float return, 'sqrt' for double return).
-     * Returns null when the function is not in the map.
-     */
-    private static getStdLibEquivalent(funcName: string, returnType: string): string | null {
-        const domain = this.MATH_FUNC_DOMAINS[funcName];
-        if (!domain) { return null; }
-        return returnType.trim().toLowerCase() === 'float'
-            ? domain.stdLibFloat
-            : domain.stdLibDouble;
-    }
-
-    /**
      * Check if a return type is void (no value to capture).
      */
     private static isVoidReturn(returnType: string): boolean {
@@ -784,6 +759,7 @@ ${externBlock}
         if ((hasPositiveExtreme || expectsOverflow) && isSingleParam && domain?.requiresNonNegative) {
             const stdLib = func.returnType.trim().toLowerCase() === 'float'
                 ? domain.stdLibFloat : domain.stdLibDouble;
+            // isSingleParam guarantees vals has exactly one element (one parameter).
             const inputVal = vals[0];
             if (inputVal) {
                 const eqMacro = func.returnType.trim().toLowerCase() === 'float'

@@ -345,7 +345,9 @@ export function isNegativeFiniteFloat(literal: string): boolean {
     }
     // Parenthesized expressions that start with a negative float constant,
     // e.g. (-FLT_MAX + FLT_EPSILON) or (-DBL_MAX + DBL_EPSILON).
-    if (/^\(-\s*(FLT_MAX|DBL_MAX|FLT_MIN|DBL_MIN|FLT_EPSILON|DBL_EPSILON)/.test(v)) {
+    // The pattern validates the complete structure: opening paren, negative constant,
+    // an additive offset constant, and closing paren.
+    if (/^\(-\s*(FLT_MAX|DBL_MAX|FLT_MIN|DBL_MIN|FLT_EPSILON|DBL_EPSILON)\s*[+\-]\s*(FLT_MAX|DBL_MAX|FLT_MIN|DBL_MIN|FLT_EPSILON|DBL_EPSILON)\)$/.test(v)) {
         return true;
     }
     return false;
