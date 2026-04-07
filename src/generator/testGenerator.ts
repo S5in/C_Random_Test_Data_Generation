@@ -356,11 +356,20 @@ export class TestGenerator {
             const paramNames = func.parameters.length > 0 ? func.parameters.map(p => p.name) : [];
             code += this.emitAct(func, paramNames);
             code += '\n';
-            // Pass special-float flag but NOT expectsOverflow — the result of
-            // multi-param extreme-float combos depends on the function's semantics
-            // (e.g. add(FLT_MAX, FLT_MAX) = Inf, but divide(FLT_MAX, FLT_MAX) = 1).
+            // Detect if any param value is NaN/Inf or if extreme float boundary
+            // values could cause overflow.  Same-sign extremes (AllMinimums,
+            // AllMaximums) are likely to overflow for additive operations while
+            // staying finite for divisive ones.  We set expectsOverflow so the
+            // assertion passes for overflow cases, with a TODO so the webview can
+            // help users replace it when the result is actually finite.
             const hasSpecial = comboValues.some(v => isFloatSpecialValue(v));
-            code += this.emitAssert(func, { values: comboValues, expectsOverflow: hasSpecial }, paramNames);
+            const isExtremeBoundary = paramBoundaryLabel === 'minimum' || paramBoundaryLabel === 'maximum';
+            const hasFloatParam = func.parameters.some(p => {
+                const t = p.type.trim().toLowerCase();
+                return t === 'float' || t === 'double';
+            });
+            const expectsOverflow = isExtremeBoundary && hasFloatParam;
+            code += this.emitAssert(func, { values: comboValues, expectsOverflow: expectsOverflow || hasSpecial }, paramNames);
             code += '}\n\n';
             cases.push({ testName: comboLabel, inputs: `Globals=${globalBoundaryLabel}, Params=${paramBoundaryLabel}`, paramValues: [], globalValues: [] });
         };
@@ -765,10 +774,14 @@ ${externBlock}
         }
 
         // Multi-param overflow: when all float/double params are at extremes
-        // (e.g. add(FLT_MAX, FLT_MAX) → Inf), the result is guaranteed to be
-        // ±Inf or NaN.  Emit a valid assertion — no TODO needed.
+        // (e.g. add(FLT_MAX, FLT_MAX) → Inf), the result is often ±Inf or NaN.
+        // However, some operations produce finite results (e.g. divide(FLT_MAX,
+        // FLT_MAX) = 1.0).  Emit a permissive assertion that passes for overflow
+        // cases, and include a TODO comment so the webview can detect and offer
+        // replacement when the result is actually finite.
         if (expectsOverflow) {
-            return `    EXPECT_TRUE(std::isnan(${retVar}) || std::isinf(${retVar})) << "Got: " << ${retVar};\n`;
+            return '    // TODO: Provide expected value\n' +
+                   `    EXPECT_TRUE(std::isnan(${retVar}) || std::isinf(${retVar})) << "Got: " << ${retVar};\n`;
         }
 
         // Other Inf/extreme case: the actual result depends on function
