@@ -325,6 +325,32 @@ export function isFloatSpecialValue(literal: string): boolean {
            /^[+-]?\s*inf(?:inity)?[fl]?$/i.test(v);
 }
 
+/**
+ * Returns true if the given C literal represents a negative finite floating-point
+ * value — e.g. `-FLT_MAX`, `-DBL_MAX`, `-FLT_EPSILON`, `(-FLT_MAX + FLT_EPSILON)`.
+ * Returns false for `-0.0`, `-0.0f`, `-INFINITY`, `-NAN`, and all non-negative values.
+ * Used by the test generator to detect likely domain violations (e.g. sqrt of a
+ * negative number).
+ */
+export function isNegativeFiniteFloat(literal: string): boolean {
+    const v = literal.trim();
+    if (v.startsWith('-')) {
+        // Exclude -0.0 / -0.0f
+        if (/^-\s*0\.0f?\s*$/.test(v)) { return false; }
+        // Exclude -INFINITY variants
+        if (/^-\s*inf(?:inity)?[fl]?$/i.test(v)) { return false; }
+        // Exclude -NAN variants
+        if (/^-\s*nan[fl]?$/i.test(v)) { return false; }
+        return true;
+    }
+    // Parenthesized expressions that start with a negative float constant,
+    // e.g. (-FLT_MAX + FLT_EPSILON) or (-DBL_MAX + DBL_EPSILON).
+    if (/^\(-\s*(FLT_MAX|DBL_MAX|FLT_MIN|DBL_MIN|FLT_EPSILON|DBL_EPSILON)/.test(v)) {
+        return true;
+    }
+    return false;
+}
+
 function sanitizeBoundaryLabel(label: string): string {
     return label
         .replace(/minimum-plus-one/g,      'MinPlusOne')
