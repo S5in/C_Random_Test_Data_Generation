@@ -651,7 +651,7 @@ ${externBlock}
             // may overflow, and the return type is floating-point, the result
             // is most likely NaN or Inf and cannot be compared with
             // EXPECT_FLOAT_EQ / EXPECT_DOUBLE_EQ (IEEE 754: NaN != NaN).
-            code += '    // TODO: Provide expected value\n';
+            // No TODO comment — the assertion below is already valid.
             code += `    EXPECT_TRUE(std::isnan(${retVar}) || std::isinf(${retVar})) << "Got: " << ${retVar};\n`;
         } else {
             code += '    // TODO: Provide expected value\n';

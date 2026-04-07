@@ -1153,7 +1153,8 @@ export function generateBoundarySets(
             // When all float/double params are at extremes (min/max),
             // arithmetic often overflows to ±Inf or produces NaN.
             ...(combo.boundary !== 'typical' && hasFloatingExtreme(params, values)
-                ? { testNote: 'Extreme float/double values may cause overflow (Inf) or NaN' }
+                ? { testNote: 'Extreme float/double values may cause overflow (Inf) or NaN',
+                    expectsOverflow: true }
                 : {}),
         });
     }
@@ -1217,7 +1218,8 @@ export function generateBoundarySets(
                 paramDeclarations: declarations,
                 // Mixed min/max with float/double params often overflows.
                 ...(hasFloatingExtreme(params, values)
-                    ? { testNote: 'Extreme float/double values may cause overflow (Inf) or NaN' }
+                    ? { testNote: 'Extreme float/double values may cause overflow (Inf) or NaN',
+                        expectsOverflow: true }
                     : {}),
             });
         }
