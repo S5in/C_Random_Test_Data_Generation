@@ -759,7 +759,8 @@ ${externBlock}
         if ((hasPositiveExtreme || expectsOverflow) && isSingleParam && domain?.requiresNonNegative) {
             const stdLib = func.returnType.trim().toLowerCase() === 'float'
                 ? domain.stdLibFloat : domain.stdLibDouble;
-            // isSingleParam guarantees vals has exactly one element (one parameter).
+            // BoundarySet.values has exactly one entry per function parameter,
+            // so vals[0] is the single parameter's value when isSingleParam is true.
             const inputVal = vals[0];
             if (inputVal) {
                 const eqMacro = func.returnType.trim().toLowerCase() === 'float'
