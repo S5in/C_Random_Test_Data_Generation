@@ -483,7 +483,7 @@ export class TestGenerator {
 #include <cfloat>
 #include <cmath>
 #include <cstddef>
-#include <limits>
+#include <cmath>
 
 ${externBlock}
 

@@ -1093,6 +1093,9 @@ export function generateBoundarySets(
                 }
             }
 
+            const requiresNoAssertion = boundaryClass === 'positive-infinity'
+                || boundaryClass === 'negative-infinity'
+                || boundaryClass === 'nan';
             sets.push({
                 label: `Param_${param.name}_${sanitizeBoundaryLabel(boundaryClass)}`,
                 description: `Vary ${param.name} to ${boundaryClass}, others at zero`,
@@ -1100,6 +1103,10 @@ export function generateBoundarySets(
                 requiredHeaders: Array.from(headers),
                 paramPreambles: preambles,
                 paramDeclarations: declarations,
+                ...(requiresNoAssertion ? {
+                    noAssertion: true,
+                    testNote: 'result may be infinity or NaN — IEEE 754: NaN != NaN, use std::isinf()/std::isnan() for assertions',
+                } : {}),
             });
         }
     }
