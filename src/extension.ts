@@ -751,7 +751,7 @@ async function generateTestForCurrentFunction(parser: any): Promise<{
 
     if (!targetFunction) {
         vscode.window.showErrorMessage(
-            '❌ No function found at cursor position.\n\nPlace your cursor inside a C function body and try again.',
+            '❌ No function found at cursor position.\n\nPlace your cursor on a C function definition or declaration and try again.',
             { modal: false }
         );
         return null;
