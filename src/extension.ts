@@ -709,7 +709,13 @@ async function generateTestForCurrentFunction(parser: any): Promise<{
 
     const document = editor.document;
     
-    if (document.languageId !== 'c' && document.languageId !== 'cpp') {
+    // Accept C source and header files only.  VS Code may assign languageId
+    // "c" or "cpp" to .h files depending on user configuration and installed
+    // extensions, so we also verify the file extension.
+    const fileName = path.basename(document.fileName);
+    const isCFile = fileName.endsWith('.c');
+    const isHFile = fileName.endsWith('.h');
+    if ((!isCFile && !isHFile) || (document.languageId !== 'c' && document.languageId !== 'cpp')) {
         vscode.window.showWarningMessage(
             'This command only works with C source or header files (.c or .h)'
         );
@@ -848,7 +854,7 @@ async function generateTestForCurrentFunction(parser: any): Promise<{
     // Step 4: Generate Test Code + Case Info
     // ========================================
     const sourceFileName = path.basename(document.fileName);
-    const isHeaderFile = sourceFileName.endsWith('.h');
+    const isHeaderFile = isHFile;
     
     // Read test density from configuration
     const density = vscode.workspace.getConfiguration('s5inCBvaTestGenerator').get<TestDensity>('testDensity', 'standard');
