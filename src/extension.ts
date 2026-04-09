@@ -908,7 +908,7 @@ async function generateTestForCurrentFunction(parser: any): Promise<{
             // No companion — generate a thin wrapper .c file.
             wrapperFileName = `${baseName}_wrapper.c`;
             wrapperContent = [
-                `/* Auto-generated wrapper — includes the header so it can be compiled as a C translation unit. */`,
+                `/* Auto-generated wrapper -- includes the header so it can be compiled as a C translation unit. */`,
                 `#include "${sourceFileName}"`,
                 ``
             ].join('\n');

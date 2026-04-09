@@ -51,8 +51,9 @@ export class FunctionExtractor {
      * is a `declaration` whose declarator is (or wraps) a `function_declarator`.
      * This method specifically targets those nodes.
      *
-     * To avoid duplicates with `extractFunctions()`, only declarations that do
-     * NOT have a corresponding `function_definition` in the tree are returned.
+     * Note: de-duplication against function definitions (to avoid returning a
+     * declaration when a matching definition exists) is handled by the caller
+     * `extractAllFunctions()`, not by this method.
      */
     static extractFunctionDeclarations(tree: Tree): FunctionInfo[] {
         const declarations: FunctionInfo[] = [];
