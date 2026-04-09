@@ -383,8 +383,10 @@ export async function activate(context: vscode.ExtensionContext) {
                         executableName = sourceFileName.replace('_test.cpp', '_tests');
                     } else if (sourceFileName.endsWith('.c')) {
                         executableName = sourceFileName.replace('.c', '_tests');
+                    } else if (sourceFileName.endsWith('.h')) {
+                        executableName = sourceFileName.replace('.h', '_tests');
                     } else {
-                        vscode.window.showWarningMessage('Open a .c or _test.cpp file to build tests');
+                        vscode.window.showWarningMessage('Open a .c, .h, or _test.cpp file to build tests');
                         return;
                     }
 
@@ -707,9 +709,9 @@ async function generateTestForCurrentFunction(parser: any): Promise<{
 
     const document = editor.document;
     
-    if (document.languageId !== 'c') {
+    if (document.languageId !== 'c' && document.languageId !== 'cpp') {
         vscode.window.showWarningMessage(
-            'This command only works with C files (.c extension)'
+            'This command only works with C source or header files (.c or .h)'
         );
         return null;
     }
