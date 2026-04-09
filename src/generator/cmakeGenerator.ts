@@ -11,7 +11,8 @@ export class CMakeGenerator {
      * Generate a CMakeLists.txt file for a test executable
      * 
      * @param testFileName - Name of the test .cpp file (e.g., "math_test.cpp")
-     * @param sourceFileName - Name of the source .c file (e.g., "math.c")
+     * @param sourceFileName - Name of the source .c file (e.g., "math.c") or a
+     *   generated wrapper .c file for header-only sources (e.g., "math_wrapper.c")
      * @returns CMakeLists.txt content
      */
         static generate(testFileName: string, sourceFileName: string, conflictGuards: string[] = [], forceIncludes: string[] = [], hasMainFunction: boolean = false): string {

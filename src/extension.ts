@@ -848,6 +848,7 @@ async function generateTestForCurrentFunction(parser: any): Promise<{
     // Step 4: Generate Test Code + Case Info
     // ========================================
     const sourceFileName = path.basename(document.fileName);
+    const isHeaderFile = sourceFileName.endsWith('.h');
     
     // Read test density from configuration
     const density = vscode.workspace.getConfiguration('s5inCBvaTestGenerator').get<TestDensity>('testDensity', 'standard');
@@ -858,7 +859,8 @@ async function generateTestForCurrentFunction(parser: any): Promise<{
         sourceFileName,
         usedGlobals,
         density,
-        funcStructDefs
+        funcStructDefs,
+        isHeaderFile
     );
 
     buildRunner.log(`Generated ${testCases.length} boundary value test case(s)`);
@@ -868,6 +870,47 @@ async function generateTestForCurrentFunction(parser: any): Promise<{
     const testFileName = `${targetFunction.name}_test.cpp`;
     
     buildRunner.log(`Creating test file: ${testFileName}`);
+
+    // ── Header-file wrapper ──────────────────────────────────────────────
+    // A .h file cannot be compiled as a standalone translation unit.  We
+    // generate a thin wrapper .c file that simply #include-s the header.
+    // This wrapper is what CMake compiles; the test .cpp file also
+    // #include-s the header inside an extern "C" block (see generateHeader
+    // in testGenerator.ts).
+    //
+    // For a corresponding .c file that already exists alongside the header
+    // (e.g. math.c next to math.h), the user should open that .c file
+    // directly.  The wrapper approach handles the case where only the .h
+    // file is available (header-only libraries, or prototypes whose
+    // implementation lives elsewhere in the project).
+    // ─────────────────────────────────────────────────────────────────────
+    let cmakeSourceFileName = sourceFileName;   // .c file that CMake compiles
+    let wrapperContent: string | null = null;   // written to disk if non-null
+    let wrapperFileName: string | null = null;
+
+    if (isHeaderFile) {
+        // Try to find a companion .c file in the same directory first.
+        const baseName = path.basename(sourceFileName, '.h');
+        const companionCFile = baseName + '.c';
+        const companionPath = path.join(path.dirname(document.fileName), companionCFile);
+        if (fs.existsSync(companionPath)) {
+            // Companion .c file exists — compile it directly (the header is
+            // included from the test via extern "C").
+            cmakeSourceFileName = companionCFile;
+            buildRunner.log(`Found companion source file: ${companionCFile}`);
+        } else {
+            // No companion — generate a thin wrapper .c file.
+            wrapperFileName = `${baseName}_wrapper.c`;
+            wrapperContent = [
+                `/* Auto-generated wrapper — includes the header so it can be compiled as a C translation unit. */`,
+                `#include "${sourceFileName}"`,
+                ``
+            ].join('\n');
+            cmakeSourceFileName = wrapperFileName;
+            buildRunner.log(`Generated wrapper source: ${wrapperFileName}`);
+        }
+    }
+
     // Detect headers whose include guards must be pre-defined to prevent
     // duplicate struct typedef errors when compiling the source file.
     const conflictInfo = detectHeaderConflicts(document.fileName);
@@ -907,7 +950,7 @@ async function generateTestForCurrentFunction(parser: any): Promise<{
     }
     const cmakeContent = CMakeGenerator.generateWithInstructions(
         testFileName,
-        sourceFileName,
+        cmakeSourceFileName,
         conflictGuards,
         forceIncludes,
         hasMainFunction
@@ -926,6 +969,12 @@ async function generateTestForCurrentFunction(parser: any): Promise<{
             const supplementPath = path.join(projectDir, supplement.fileName);
             await fs.promises.writeFile(supplementPath, supplement.content, 'utf8');
             buildRunner.log(`Type supplement written: ${supplementPath}`);
+        }
+        // Write wrapper .c file for header-only sources (if generated)
+        if (wrapperFileName && wrapperContent) {
+            const wrapperPath = path.join(projectDir, wrapperFileName);
+            await fs.promises.writeFile(wrapperPath, wrapperContent, 'utf8');
+            buildRunner.log(`Wrapper source written: ${wrapperPath}`);
         }
         await fs.promises.writeFile(testFilePath, testCode, 'utf8');
         buildRunner.log(`Test file written: ${testFilePath}`);
