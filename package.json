@@ -60,7 +60,7 @@
         "command": "s5in-c-bva-test-generator.generateTest",
         "key": "ctrl+shift+t",
         "mac": "cmd+shift+t",
-        "when": "editorTextFocus && resourceLangId == c"
+        "when": "editorTextFocus && (resourceExtname == .c || resourceExtname == .h)"
       }
     ],
     "configuration": {
