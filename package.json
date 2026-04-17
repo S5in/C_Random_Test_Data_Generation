@@ -70,7 +70,44 @@
           "type": "string",
           "default": "standard",
           "enum": ["minimal", "standard", "exhaustive"],
-          "description": "Controls how many boundary test cases are generated per function. 'minimal' = min/max/zero only; 'standard' = full BVA (default); 'exhaustive' = all boundary classes including near-zero, infinity, overflow."
+          "markdownDescription": "Controls how many boundary test cases are generated per function.\n\n- `minimal` — min, max, zero only (fewest tests)\n- `standard` — full BVA: min, min+1, max−1, max (**default**)\n- `exhaustive` — all boundary classes including near-zero, infinity, overflow"
+        },
+        "cTestGenerator.numberOfRandomValues": {
+          "type": "number",
+          "default": 5,
+          "minimum": 0,
+          "markdownDescription": "Number of additional random test values generated per parameter. These are appended after the boundary-value tests. Set to `0` to disable random test generation."
+        },
+        "cTestGenerator.enableBoundaryNaN": {
+          "type": "boolean",
+          "default": true,
+          "markdownDescription": "Include `NAN` in the boundary values generated for floating-point parameters (`float`, `double`). Disable to skip NaN test cases."
+        },
+        "cTestGenerator.enableBoundaryInfinity": {
+          "type": "boolean",
+          "default": true,
+          "markdownDescription": "Include `INFINITY` and `-INFINITY` in the boundary values generated for floating-point parameters (`float`, `double`). Disable to skip infinity test cases."
+        },
+        "cTestGenerator.enableBoundaryZero": {
+          "type": "boolean",
+          "default": true,
+          "markdownDescription": "Include zero and near-zero boundary values (e.g. `0`, `0.0f`, `-0.0f`, `FLT_EPSILON`) in test generation. Disable to skip zero-boundary test cases."
+        },
+        "cTestGenerator.outputFormat": {
+          "type": "string",
+          "default": "googletest",
+          "enum": ["googletest", "plain"],
+          "markdownDescription": "Output format for generated test files.\n\n- `googletest` — Google Test `TEST(…)` macros (**default**)\n- `plain` — plain C function stubs without a test framework"
+        },
+        "cTestGenerator.includeNegativeTests": {
+          "type": "boolean",
+          "default": true,
+          "markdownDescription": "Generate negative/invalid-input test cases (e.g. `NULL` pointers, negative sizes). Disable to produce only valid-input boundary tests."
+        },
+        "cTestGenerator.testFileNamingPattern": {
+          "type": "string",
+          "default": "test_{filename}",
+          "markdownDescription": "Pattern for the generated test file name. `{filename}` is replaced with the source file's base name (without extension). For example, with the default `test_{filename}`, opening `math.c` produces `test_math.cpp`."
         }
       }
     }
