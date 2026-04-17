@@ -6,7 +6,13 @@
   "publisher": "S5in",
   "icon": "images/icon.png",
   "license": "SEE LICENSE IN LICENSE.txt",
-  "keywords": ["C", "testing", "boundary value analysis", "google test", "test generation"],
+  "keywords": [
+    "C",
+    "testing",
+    "boundary value analysis",
+    "google test",
+    "test generation"
+  ],
   "galleryBanner": {
     "color": "#1e1e1e",
     "theme": "dark"
@@ -21,7 +27,9 @@
   "categories": [
     "Testing"
   ],
-  "activationEvents": ["onStartupFinished"],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
   "main": "./dist/extension.js",
   "contributes": {
     "commands": [
@@ -38,7 +46,7 @@
       {
         "command": "s5in-c-bva-test-generator.cleanBuild",
         "title": "Clean Build Directory",
-         "category": "C Test Generator"
+        "category": "C Test Generator"
       },
       {
         "command": "s5in-c-bva-test-generator.checkPrerequisites",
@@ -69,7 +77,11 @@
         "cTestGenerator.testDensity": {
           "type": "string",
           "default": "standard",
-          "enum": ["minimal", "standard", "exhaustive"],
+          "enum": [
+            "minimal",
+            "standard",
+            "exhaustive"
+          ],
           "markdownDescription": "Controls how many boundary test cases are generated per function.\n\n- `minimal` — min, max, zero only (fewest tests)\n- `standard` — full BVA: min, min+1, max−1, max (**default**)\n- `exhaustive` — all boundary classes including near-zero, infinity, overflow"
         },
         "cTestGenerator.numberOfRandomValues": {
@@ -96,7 +108,10 @@
         "cTestGenerator.outputFormat": {
           "type": "string",
           "default": "googletest",
-          "enum": ["googletest", "plain"],
+          "enum": [
+            "googletest",
+            "plain"
+          ],
           "markdownDescription": "Output format for generated test files.\n\n- `googletest` — Google Test `TEST(…)` macros (**default**)\n- `plain` — plain C function stubs without a test framework"
         },
         "cTestGenerator.includeNegativeTests": {
@@ -124,7 +139,8 @@
     "pretest": "npm run compile-tests && npm run compile && npm run lint",
     "check-types": "tsc --noEmit",
     "lint": "eslint src",
-    "test": "vscode-test"
+    "test": "vscode-test",
+    "test:coverage": "c8 --reporter=text --reporter=lcov vscode-test"
   },
   "devDependencies": {
     "@types/emscripten": "^1.41.5",
@@ -133,6 +149,7 @@
     "@types/vscode": "^1.109.0",
     "@vscode/test-cli": "^0.0.12",
     "@vscode/test-electron": "^2.5.2",
+    "c8": "^11.0.0",
     "esbuild": "^0.27.2",
     "eslint": "^9.39.2",
     "npm-run-all": "^4.1.5",
