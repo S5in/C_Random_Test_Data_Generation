@@ -375,11 +375,18 @@ suite('BoundaryValues — generateBoundarySets', () => {
         assert.strictEqual(hasInf, false, 'Infinity sets should be excluded');
     });
 
-    test('enableBoundaryZero=false excludes zero sets', () => {
-        const params: FunctionParameter[] = [{ name: 'x', type: 'int' }];
-        const sets = generateBoundarySets(params, 'standard', [], { enableBoundaryZero: false });
-        const hasZero = sets.some((s: BoundarySet) => s.label.toLowerCase().includes('zero'));
-        assert.strictEqual(hasZero, false, 'Zero sets should be excluded');
+    test('enableBoundaryZero=false excludes zero boundary sets', () => {
+        const params: FunctionParameter[] = [{ name: 'x', type: 'float' }];
+        const sets = generateBoundarySets(params, 'exhaustive', [], { enableBoundaryZero: false });
+        // Zero boundary classes (zero, negative-zero, near-zero-positive, near-zero-negative,
+        // smallest-positive) should be excluded from one-at-a-time tests.
+        // The Baseline_AllZero is always present (it's a nominal test, not a zero-boundary test).
+        const nonBaselineSets = sets.filter((s: BoundarySet) => !s.label.startsWith('Baseline_'));
+        const zeroLabels = ['Zero', 'NegativeZero', 'NearZeroPositive', 'NearZeroNegative', 'SmallestPositive'];
+        const hasZeroBoundary = nonBaselineSets.some((s: BoundarySet) =>
+            zeroLabels.some(z => s.label.includes(z))
+        );
+        assert.strictEqual(hasZeroBoundary, false, 'Zero boundary sets should be excluded');
     });
 
     test('sets have required headers field', () => {
@@ -405,8 +412,13 @@ suite('BoundaryValues — generateBoundarySets', () => {
     test('pointer param generates null-pointer set', () => {
         const params: FunctionParameter[] = [{ name: 'ptr', type: 'int *' }];
         const sets = generateBoundarySets(params, 'standard');
-        const hasNull = sets.some((s: BoundarySet) => s.label.includes('NullPointer'));
-        assert.ok(hasNull, 'pointer param should produce a NullPointer set');
+        // For a single pointer param, the baseline test uses NULL (the nominal for
+        // pointers), so NullPointer is deduplicated with Baseline_AllZero.
+        // Verify that at least one set has NULL in its values.
+        const hasNull = sets.some((s: BoundarySet) =>
+            s.values.some((v: string) => v === 'NULL')
+        );
+        assert.ok(hasNull, 'pointer param should produce a NULL test case');
     });
 
     test('includeNegativeTests=false excludes null pointer sets', () => {

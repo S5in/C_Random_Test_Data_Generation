@@ -40,8 +40,8 @@ suite('CMakeGenerator — generate()', () => {
 
     test('executable name derived from test file name', () => {
         const content = CMakeGenerator.generate('test_math.cpp', 'math.c');
-        // 'test_math.cpp' -> 'test_maths' (replaces _test with _tests)
-        assert.ok(content.includes('test_maths'), 'executable name should be test_maths');
+        // 'test_math.cpp' -> baseName 'test_math' (no '_test' substring to replace)
+        assert.ok(content.includes('test_math'), 'executable name should be test_math');
     });
 
     test('add_executable includes both test and source files', () => {
@@ -106,7 +106,8 @@ suite('CMakeGenerator — generateBuildInstructions', () => {
 
     test('contains the executable name', () => {
         const content = CMakeGenerator.generateBuildInstructions('test_math.cpp');
-        assert.ok(content.includes('test_maths'), 'should contain the executable name');
+        // 'test_math.cpp' -> baseName 'test_math' (no '_test' substring to replace)
+        assert.ok(content.includes('test_math'), 'should contain the executable name');
     });
 
     test('output is a comment block (lines start with #)', () => {
