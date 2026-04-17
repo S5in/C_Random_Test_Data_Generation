@@ -21,8 +21,9 @@ import { TestGenerator, TestCaseInfo } from './generator/testGenerator';
 import { CMakeGenerator } from './generator/cmakeGenerator';
 import { BuildRunner } from './build/buildRunner';
 import { ExpectedValuesWebview } from './ui/expectedValuesWebview';
-import { TestDensity, setKnownStructNames, setKnownStructInfos } from './generator/boundaryValues';
+import { setKnownStructNames, setKnownStructInfos } from './generator/boundaryValues';
 import { FunctionParameter, StructInfo } from './types';
+import { getExtensionConfig } from './config';
 
 let buildRunner: BuildRunner;
 let prerequisiteStatusBar: vscode.StatusBarItem;
@@ -856,9 +857,12 @@ async function generateTestForCurrentFunction(parser: any): Promise<{
     const sourceFileName = path.basename(document.fileName);
     const isHeaderFile = isHFile;
     
-    // Read test density from configuration
-    const density = vscode.workspace.getConfiguration('s5inCBvaTestGenerator').get<TestDensity>('testDensity', 'standard');
-    buildRunner.log(`Generating test code (density: ${density})...`);
+    // Read all extension settings from the centralised config module.
+    // This is called on every invocation so that the user's latest changes
+    // are always picked up without needing to reload the window.
+    const extConfig = getExtensionConfig();
+    const { testDensity: density } = extConfig;
+    buildRunner.log(`Generating test code (density: ${density}, format: ${extConfig.outputFormat}, randomValues: ${extConfig.numberOfRandomValues})...`);
     
     const { testCode, testCases } = TestGenerator.generateTestsWithCaseInfo(
         targetFunction,
@@ -866,14 +870,24 @@ async function generateTestForCurrentFunction(parser: any): Promise<{
         usedGlobals,
         density,
         funcStructDefs,
-        isHeaderFile
+        isHeaderFile,
+        {
+            numberOfRandomValues:   extConfig.numberOfRandomValues,
+            outputFormat:           extConfig.outputFormat,
+            enableBoundaryNaN:      extConfig.enableBoundaryNaN,
+            enableBoundaryInfinity: extConfig.enableBoundaryInfinity,
+            enableBoundaryZero:     extConfig.enableBoundaryZero,
+            includeNegativeTests:   extConfig.includeNegativeTests,
+        }
     );
 
     buildRunner.log(`Generated ${testCases.length} boundary value test case(s)`);
     // ========================================
     // Step 5: Generate CMakeLists.txt
     // ========================================
-    const testFileName = `${targetFunction.name}_test.cpp`;
+    // Apply the testFileNamingPattern setting: {filename} → source file base name.
+    const sourceBaseName = path.basename(sourceFileName, path.extname(sourceFileName));
+    const testFileName = extConfig.testFileNamingPattern.replace('{filename}', sourceBaseName) + '.cpp';
     
     buildRunner.log(`Creating test file: ${testFileName}`);
     // ── Header-file wrapper ──────────────────────────────────────────────
@@ -996,7 +1010,7 @@ async function generateTestForCurrentFunction(parser: any): Promise<{
         // ========================================
         const totalTests = testCases.length;
 
-        const executableName = testFileName.replace('_test.cpp', '_tests');
+        const executableName = testFileName.replace(/\.cpp$/, '').replace(/_test$/, '_tests');
 
         buildRunner.log(`Generation complete: ${totalTests} test(s) created`);
 

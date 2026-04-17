@@ -11,12 +11,23 @@
  */
 
 import { FunctionInfo, FunctionParameter, GlobalVariable, StructInfo } from '../types';
-import { generateBoundarySets, getBoundariesForType, TestDensity, isPointerType, isArrayType, isStructType, detectArraySizePairs, getBoundaryValues, isFloatSpecialValue, isNegativeFiniteFloat } from './boundaryValues';
+import { generateBoundarySets, getBoundariesForType, TestDensity, BoundaryOptions, isPointerType, isArrayType, isStructType, detectArraySizePairs, getBoundaryValues, isFloatSpecialValue, isNegativeFiniteFloat } from './boundaryValues';
 export interface TestCaseInfo {
     testName: string;
     inputs: string;
     paramValues: { name: string; value: string }[];
     globalValues?: { name: string; value: string }[];
+}
+
+/**
+ * Options that control test generation behaviour.
+ * All fields are optional; safe defaults mirror the package.json setting defaults.
+ */
+export interface GeneratorOptions extends BoundaryOptions {
+    /** Number of additional random-value test cases to append. Default: 5. */
+    numberOfRandomValues?: number;
+    /** Output format: 'googletest' (default) or 'plain' (no test framework). */
+    outputFormat?: 'googletest' | 'plain';
 }
 
 export class TestGenerator {
@@ -32,6 +43,8 @@ export class TestGenerator {
      *   header inside an extern "C" block instead of emitting inline struct
      *   typedefs and a forward declaration.  This produces cleaner output
      *   for .h files and avoids issues with missing types/macros.
+     * @param options      Optional generator options (random values, output format,
+     *                     boundary filtering flags).
      */
     static generateTestsWithCaseInfo(
         func: FunctionInfo,
@@ -39,20 +52,33 @@ export class TestGenerator {
         usedGlobals: GlobalVariable[],
         density: TestDensity = 'standard',
         funcStructDefs: StructInfo[] = [],
-        isHeaderFile: boolean = false
+        isHeaderFile: boolean = false,
+        options: GeneratorOptions = {}
     ): { testCode: string; testCases: TestCaseInfo[] } {
 
         const testCases: TestCaseInfo[] = [];
-        let testCode = this.generateHeader(sourceFileName, func, funcStructDefs, usedGlobals, isHeaderFile);
+        const outputFormat = options.outputFormat ?? 'googletest';
+
+        let testCode = (outputFormat === 'plain')
+            ? this.generatePlainHeader(sourceFileName, func, funcStructDefs, usedGlobals, isHeaderFile)
+            : this.generateHeader(sourceFileName, func, funcStructDefs, usedGlobals, isHeaderFile);
 
         if (usedGlobals.length > 0) {
-            const result = this.generateFixtureTestsWithInfo(func, usedGlobals, density);
+            const result = this.generateFixtureTestsWithInfo(func, usedGlobals, density, options);
             testCode += result.code;
             testCases.push(...result.cases);
         } else {
-            const result = this.generateRegularTestsWithInfo(func, density);
+            const result = this.generateRegularTestsWithInfo(func, density, options);
             testCode += result.code;
             testCases.push(...result.cases);
+        }
+
+        // Append random-value test cases (only for googletest format)
+        const numRandom = options.numberOfRandomValues ?? 5;
+        if (numRandom > 0 && outputFormat === 'googletest') {
+            const randomResult = this.generateRandomTestsWithInfo(func, numRandom);
+            testCode += randomResult.code;
+            testCases.push(...randomResult.cases);
         }
 
         return { testCode, testCases };
@@ -75,14 +101,15 @@ export class TestGenerator {
 
     private static generateRegularTestsWithInfo(
         func: FunctionInfo,
-        density: TestDensity
+        density: TestDensity,
+        options: GeneratorOptions = {}
     ): { code: string; cases: TestCaseInfo[] } {
         let code = `// ============================================================================\n`;
         code += `// Tests for: ${func.name}()\n`;
         code += `// ============================================================================\n\n`;
 
         const cases: TestCaseInfo[] = [];
-        const boundarySets = generateBoundarySets(func.parameters, density);
+        const boundarySets = generateBoundarySets(func.parameters, density, [], options);
 
         for (const set of boundarySets) {
             const testName = this.sanitizeLabel(set.label);
@@ -135,7 +162,8 @@ export class TestGenerator {
     private static generateFixtureTestsWithInfo(
         func: FunctionInfo,
         globals: GlobalVariable[],
-        density: TestDensity
+        density: TestDensity,
+        options: GeneratorOptions = {}
     ): { code: string; cases: TestCaseInfo[] } {
         // Static globals have internal linkage — they cannot be referenced from a
         // C++ translation unit (no `extern` declaration is valid for them).  Only
@@ -145,13 +173,13 @@ export class TestGenerator {
         // When every used global is static (none are accessible from C++), fall
         // back to regular test generation so the output compiles cleanly.
         if (accessibleGlobals.length === 0) {
-            return this.generateRegularTestsWithInfo(func, density);
+            return this.generateRegularTestsWithInfo(func, density, options);
         }
         const cases: TestCaseInfo[] = [];
 
         let code = this.generateFixtureClass(func.name, accessibleGlobals);
 
-        const paramResult = this.generateParameterBoundaryTestsWithInfo(func, accessibleGlobals, density);
+        const paramResult = this.generateParameterBoundaryTestsWithInfo(func, accessibleGlobals, density, options);
         code += paramResult.code;
         cases.push(...paramResult.cases);
 
@@ -169,13 +197,14 @@ export class TestGenerator {
     private static generateParameterBoundaryTestsWithInfo(
         func: FunctionInfo,
         globals: GlobalVariable[],
-        density: TestDensity
+        density: TestDensity,
+        options: GeneratorOptions = {}
     ): { code: string; cases: TestCaseInfo[] } {
         const className = this.capitalize(func.name) + 'Fixture';
         let code = '// Parameter Boundary Tests\n\n';
         const cases: TestCaseInfo[] = [];
 
-        const boundarySets = generateBoundarySets(func.parameters, density);
+        const boundarySets = generateBoundarySets(func.parameters, density, [], options);
 
         for (const set of boundarySets) {
             const testName = `Param_${this.sanitizeLabel(set.label)}`;
@@ -530,9 +559,171 @@ ${externBlock}
 
 `;
      }
+
+    /**
+     * Generate a plain-C header (no Google Test framework).
+     * Emits #include directives and an extern "C" block just like generateHeader,
+     * but without the <gtest/gtest.h> include.
+     */
+    private static generatePlainHeader(
+        sourceFileName: string,
+        func: FunctionInfo,
+        funcStructDefs: StructInfo[] = [],
+        usedGlobals: GlobalVariable[] = [],
+        isHeaderFile: boolean = false
+    ): string {
+        if (isHeaderFile) {
+            const externGlobalsBlock = usedGlobals
+                .filter(g => !g.isStatic)
+                .map(g => `    extern ${g.type} ${g.name};`)
+                .join('\n');
+            const externCParts = [
+                `    #include "${sourceFileName}"`,
+                externGlobalsBlock
+            ].filter(s => s.trim() !== '');
+            const externBlock = `extern "C" {\n${externCParts.join('\n\n')}\n}`;
+            return `// ============================================================================
+// Generated Tests for ${sourceFileName}
+// AUTO-GENERATED by C Test Generator v2.0.0  (plain format)
+// ============================================================================
+#include <climits>
+#include <cfloat>
+#include <cmath>
+#include <cstddef>
+#include <limits>
+${externBlock}
+`;
+        }
+
+        const structDefsBlock = funcStructDefs
+            .map(s => {
+                const fields = s.fields.map(f => `    ${f.type} ${f.name};`).join('\n');
+                return `    typedef struct {\n${fields}\n    } ${s.name};`;
+            })
+            .join('\n\n');
+        const externGlobalsBlock = usedGlobals
+            .filter(g => !g.isStatic)
+            .map(g => `    extern ${g.type} ${g.name};`)
+            .join('\n');
+        const params = func.parameters.length === 0
+            ? 'void'
+            : func.parameters.map(p => this.formatParamForDecl(p)).join(', ');
+        const forwardDecl = `    ${func.returnType} ${func.name}(${params});`;
+        const externCParts = [structDefsBlock, externGlobalsBlock, forwardDecl]
+            .filter(s => s.trim() !== '');
+        const externBlock = `extern "C" {\n${externCParts.join('\n\n')}\n}`;
+        return `// ============================================================================
+// Generated Tests for ${sourceFileName}
+// AUTO-GENERATED by C Test Generator v2.0.0  (plain format)
+// ============================================================================
+
+#include <climits>
+#include <cfloat>
+#include <cmath>
+#include <cstddef>
+#include <limits>
+
+${externBlock}
+
+`;
+    }
+
+    // -----------------------------------------------------------------------
+    // Random test generation
+    // -----------------------------------------------------------------------
+
+    /**
+     * Generate `count` random-value test cases for a function.
+     * Only primitive (non-pointer, non-array, non-struct) parameters are randomised;
+     * complex parameter types receive a nominal safe value.
+     */
+    private static generateRandomTestsWithInfo(
+        func: FunctionInfo,
+        count: number
+    ): { code: string; cases: TestCaseInfo[] } {
+        if (count <= 0 || func.parameters.length === 0) {
+            return { code: '', cases: [] };
+        }
+
+        let code = `// ============================================================================\n`;
+        code += `// Random Value Tests for: ${func.name}()\n`;
+        code += `// ============================================================================\n\n`;
+
+        const cases: TestCaseInfo[] = [];
+
+        for (let i = 0; i < count; i++) {
+            const testName = `Random_${i + 1}`;
+            code += `TEST(${func.name}Test, ${testName}) {\n`;
+            code += '    // Arrange (randomly generated values)\n';
+
+            const paramValues: { name: string; value: string }[] = [];
+            for (const param of func.parameters) {
+                const value = this.randomValueForType(param.type);
+                code += `    ${param.type} ${param.name} = ${value};\n`;
+                paramValues.push({ name: param.name, value });
+            }
+
+            code += '\n';
+            const paramNames = func.parameters.map(p => p.name);
+            code += this.emitAct(func, paramNames);
+            code += '\n';
+            code += `    // TODO: Provide expected value\n`;
+            code += `    FAIL() << "Expected value not set for random test ${i + 1}";\n`;
+            code += '}\n\n';
+
+            cases.push({
+                testName,
+                inputs: paramValues.map(p => `${p.name}=${p.value}`).join(', '),
+                paramValues
+            });
+        }
+
+        return { code, cases };
+    }
+
+    /**
+     * Generate a random C literal value for a primitive type.
+     * Complex types (pointers, arrays, structs) receive a safe nominal value.
+     */
+    private static randomValueForType(type: string): string {
+        const t = type.trim().replace(/\s+/g, ' ').toLowerCase();
+        if (isPointerType(type)) { return 'NULL'; }
+        if (isArrayType(type))   { return '/* array */'; }
+        if (isStructType(type))  { return '{0}'; }
+
+        if (t === 'float') {
+            const v = (Math.random() * 200 - 100).toFixed(4);
+            return `${v}f`;
+        }
+        if (t === 'double') {
+            return (Math.random() * 200 - 100).toFixed(6);
+        }
+        if (t === 'char') {
+            const code = Math.floor(Math.random() * 94) + 33; // printable ASCII 33-126
+            return `'${String.fromCharCode(code)}'`;
+        }
+        if (t === 'unsigned char' || t === 'unsigned short') {
+            return String(Math.floor(Math.random() * 200));
+        }
+        if (t === 'unsigned int' || t === 'unsigned') {
+            return String(Math.floor(Math.random() * 1000));
+        }
+        if (t === 'unsigned long') {
+            return `${Math.floor(Math.random() * 1000)}UL`;
+        }
+        if (t === 'size_t') {
+            return String(Math.floor(Math.random() * 100));
+        }
+        // int, short, long and any other integer-like type
+        return String(Math.floor(Math.random() * 201) - 100);
+    }
+
+    // -----------------------------------------------------------------------
+    // Header generators and utility helpers
+    // -----------------------------------------------------------------------
+
     /**
      * Format a function parameter for use in a C forward declaration.
-     * FunctionExtractor stores array parameters as e.g. type="int[10]", name="arr"
      * but the declaration syntax requires "int arr[10]".
      */
     private static formatParamForDecl(param: FunctionParameter): string {
