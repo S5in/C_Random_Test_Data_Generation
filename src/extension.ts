@@ -1010,7 +1010,9 @@ async function generateTestForCurrentFunction(parser: any): Promise<{
         // ========================================
         const totalTests = testCases.length;
 
-        const executableName = testFileName.replace(/\.cpp$/, '').replace(/_test$/, '_tests');
+        // Derive executable name using the same logic as CMakeGenerator.getExecutableName():
+        // strip .cpp extension then replace trailing _test → _tests (or keep as-is).
+        const executableName = path.basename(testFileName, '.cpp').replace(/_test$/, '_tests');
 
         buildRunner.log(`Generation complete: ${totalTests} test(s) created`);
 

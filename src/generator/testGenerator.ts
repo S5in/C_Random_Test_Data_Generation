@@ -20,7 +20,7 @@ export interface TestCaseInfo {
 }
 
 /**
- * Options that control test generation behaviour.
+ * Options that control test generation behavior.
  * All fields are optional; safe defaults mirror the package.json setting defaults.
  */
 export interface GeneratorOptions extends BoundaryOptions {
