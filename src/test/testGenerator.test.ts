@@ -104,10 +104,11 @@ suite('TestGenerator — header file mode', () => {
     });
 });
 suite('TestGenerator — output format', () => {
-    test('plain format omits TEST() macros', () => {
+    test('plain format omits gtest header', () => {
         const func = makeIntFunc('add', [{ name: 'a', type: 'int' }]);
         const { testCode } = TestGenerator.generateTestsWithCaseInfo(func, 'math.c', [], 'standard', [], false, { outputFormat: 'plain', numberOfRandomValues: 0 });
-        assert.strictEqual(testCode.includes('TEST('), false, 'plain format should not use TEST() macros');
+        assert.strictEqual(testCode.includes('gtest/gtest.h'), false, 'plain format should not include gtest header');
+        assert.ok(testCode.includes('plain format'), 'plain format header should mention plain format');
     });
     test('googletest format uses TEST() macros', () => {
         const func = makeIntFunc('add', [{ name: 'a', type: 'int' }]);

@@ -537,7 +537,10 @@ function getBoundarySetKey(set: BoundarySet): string {
     const n = set.values.length;
     for (let i = 0; i < n; i++) {
         const decl = set.paramDeclarations?.[i];
-        parts.push((decl !== undefined && decl !== null) ? decl : set.values[i]);
+        const preamble = set.paramPreambles?.[i];
+        let part = (decl !== undefined && decl !== null) ? decl : set.values[i];
+        if (preamble) { part += '@@' + preamble; }
+        parts.push(part);
     }
     return parts.join('||');
 }
