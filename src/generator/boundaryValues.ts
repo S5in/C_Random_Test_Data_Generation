@@ -38,6 +38,25 @@ export function setKnownStructInfos(structs: StructInfo[]): void {
 export type TestDensity = 'minimal' | 'standard' | 'exhaustive';
 
 // ---------------------------------------------------------------------------
+// Boundary generation options (driven by VS Code settings)
+// ---------------------------------------------------------------------------
+
+/**
+ * Optional flags that filter which boundary classes are included.
+ * All flags default to `true` (matching the defaults in package.json).
+ */
+export interface BoundaryOptions {
+    /** Include NaN boundary values for float/double parameters. */
+    enableBoundaryNaN?: boolean;
+    /** Include ±Infinity boundary values for float/double parameters. */
+    enableBoundaryInfinity?: boolean;
+    /** Include zero / near-zero boundary values. */
+    enableBoundaryZero?: boolean;
+    /** Include negative/invalid-input tests (NULL pointers, negative sizes). */
+    includeNegativeTests?: boolean;
+}
+
+// ---------------------------------------------------------------------------
 // BoundaryValue interface
 // ---------------------------------------------------------------------------
 
@@ -255,10 +274,21 @@ const EXHAUSTIVE_CLASSES = [
 
 const DEFAULT_STRUCT_FIELD_COUNT = 2;
 
-function getBoundaryClassesForDensity(density: TestDensity): string[] {
-    if (density === 'minimal')    { return MINIMAL_CLASSES; }
-    if (density === 'exhaustive') { return EXHAUSTIVE_CLASSES; }
-    return STANDARD_CLASSES;
+const NAN_CLASSES      = new Set(['nan']);
+const INFINITY_CLASSES = new Set(['positive-infinity', 'negative-infinity']);
+const ZERO_CLASSES     = new Set(['zero', 'negative-zero', 'near-zero-positive', 'near-zero-negative', 'null-terminator', 'smallest-positive']);
+
+function getBoundaryClassesForDensity(density: TestDensity, options?: BoundaryOptions): string[] {
+    let classes: string[];
+    if (density === 'minimal')    { classes = [...MINIMAL_CLASSES]; }
+    else if (density === 'exhaustive') { classes = [...EXHAUSTIVE_CLASSES]; }
+    else { classes = [...STANDARD_CLASSES]; }
+
+    if (options?.enableBoundaryNaN      === false) { classes = classes.filter(c => !NAN_CLASSES.has(c)); }
+    if (options?.enableBoundaryInfinity === false) { classes = classes.filter(c => !INFINITY_CLASSES.has(c)); }
+    if (options?.enableBoundaryZero     === false) { classes = classes.filter(c => !ZERO_CLASSES.has(c)); }
+
+    return classes;
 }
 
 // ---------------------------------------------------------------------------
@@ -846,11 +876,14 @@ function getArraySizeBoundaries(): ArraySizeBoundary[] {
  *
  * @param params   Function parameters
  * @param density  Controls how many boundary classes are exercised
+ * @param structs  Known struct definitions
+ * @param options  Optional flags to filter boundary classes and test types
  */
 export function generateBoundarySets(
     params: FunctionParameter[],
     density: TestDensity = 'standard',
-    structs: StructInfo[] = []
+    structs: StructInfo[] = [],
+    options?: BoundaryOptions
 ): BoundarySet[] {
     if (params.length === 0) {
         return [{
@@ -862,7 +895,8 @@ export function generateBoundarySets(
     }
 
     const sets: BoundarySet[] = [];
-    const boundaryClasses = getBoundaryClassesForDensity(density);
+    const boundaryClasses = getBoundaryClassesForDensity(density, options);
+    const includeNegative = options?.includeNegativeTests !== false;
 
     // Detect array-size parameter pairs for correlated test generation
     const arraySizePairs = detectArraySizePairs(params);
@@ -907,6 +941,9 @@ export function generateBoundarySets(
         // ---- Pointer ----
         if (isPointerType(param.type)) {
             for (const entry of pointerEntriesForParam(param)) {
+                // Skip null-pointer test when negative tests are disabled
+                if (!includeNegative && entry.label === 'null-pointer') { continue; }
+
                 const values: string[] = [];
                 const headers = new Set<string>();
                 const preambles: (string | null)[] = [];
@@ -946,6 +983,11 @@ export function generateBoundarySets(
         // ---- Array ----
         if (isArrayType(param.type)) {
             for (const entry of arrayEntriesForParam(param)) {
+                // Skip negative-size and over-read UB tests when negative tests are disabled
+                if (!includeNegative && (
+                    entry.label === 'array-negative-size' ||
+                    entry.label === 'array-size-exceeds-length'
+                )) { continue; }
                 const values: string[] = [];
                 const headers = new Set<string>();
                 const preambles: (string | null)[] = [];
