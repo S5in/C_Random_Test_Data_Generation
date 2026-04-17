@@ -124,7 +124,8 @@
     "pretest": "npm run compile-tests && npm run compile && npm run lint",
     "check-types": "tsc --noEmit",
     "lint": "eslint src",
-    "test": "vscode-test"
+    "test": "vscode-test",
+    "test:coverage": "c8 --reporter=text --reporter=lcov vscode-test"
   },
   "devDependencies": {
     "@types/emscripten": "^1.41.5",
