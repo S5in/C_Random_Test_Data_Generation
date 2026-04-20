@@ -2,7 +2,7 @@ import * as assert from 'assert';
 import * as vscode from 'vscode';
 
 /** Extension identifier as registered in package.json (publisher.name) */
-const EXTENSION_ID = 'S5in.s5in-c-bva-test-generator';
+const EXTENSION_ID = 'S5in.voidwalker';
 
 suite('Extension Test Suite', () => {
 	vscode.window.showInformationMessage('Start all tests.');

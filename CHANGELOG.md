@@ -1,8 +1,17 @@
 # Change Log
 
-All notable changes to the "random-test-data-generation" extension will be documented in this file.
+All notable changes to the "voidwalker" extension will be documented in this file.
 
 Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how to structure this file.
+
+## [3.0.0] — 2026-04-20
+### Added
+- **Header file (`.h`) parsing** — The extension can now parse `.h` header files to extract function declarations/prototypes and generate tests from them, not just `.c` source files.
+- **VS Code Marketplace CI/CD publish pipeline** — Added GitHub Actions workflow (`.github/workflows/publish.yml`) for automated packaging and publishing via `vsce` on every GitHub release.
+### Changed
+- **Rebranded to Voidwalker** — Extension renamed from "S5in C BVA Test Generator" to "Voidwalker". Updated extension name, command IDs (`voidwalker.*`), configuration keys (`voidwalker.*`), output channel name, diagnostic source, and all documentation.
+- **Version bumped to 3.0.0.**
+- **Updated keywords and categories** for better Marketplace discoverability (`categories`: Testing, Other; expanded `keywords` list).
 
 ## [2.0.2] — 2026-03-24
 ### Added
