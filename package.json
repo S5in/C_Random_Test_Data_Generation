@@ -1,12 +1,12 @@
 {
-  "name": "s5in-c-bva-test-generator",
-  "displayName": "S5in C BVA Test Generator",
-  "description": "Automatically generates Google Test test cases for C functions using boundary value analysis — by Maksym Redchenko. Right-click a function → get tests.",
-  "version": "2.0.3",
+  "name": "voidwalker",
+  "displayName": "Voidwalker",
+  "description": "Voidwalker — automatically generates Google Test test cases for C functions using boundary value analysis. Right-click a function → get tests.",
+  "version": "3.0.0",
   "publisher": "S5in",
   "icon": "images/icon.png",
   "license": "SEE LICENSE IN LICENSE.txt",
-  "keywords": ["C", "testing", "boundary value analysis", "google test", "test generation"],
+  "keywords": ["C", "testing", "boundary value analysis", "google test", "test generation", "BVA", "voidwalker", "gtest", "unit test"],
   "galleryBanner": {
     "color": "#1e1e1e",
     "theme": "dark"
@@ -19,92 +19,93 @@
     "vscode": "^1.109.0"
   },
   "categories": [
-    "Testing"
+    "Testing",
+    "Other"
   ],
   "activationEvents": ["onStartupFinished"],
   "main": "./dist/extension.js",
   "contributes": {
     "commands": [
       {
-        "command": "s5in-c-bva-test-generator.generateTest",
+        "command": "voidwalker.generateTest",
         "title": "Generate Tests for This Function",
-        "category": "C Test Generator"
+        "category": "Voidwalker"
       },
       {
-        "command": "s5in-c-bva-test-generator.buildAndRun",
+        "command": "voidwalker.buildAndRun",
         "title": "Build & Run Tests",
-        "category": "C Test Generator"
+        "category": "Voidwalker"
       },
       {
-        "command": "s5in-c-bva-test-generator.cleanBuild",
+        "command": "voidwalker.cleanBuild",
         "title": "Clean Build Directory",
-         "category": "C Test Generator"
+         "category": "Voidwalker"
       },
       {
-        "command": "s5in-c-bva-test-generator.checkPrerequisites",
+        "command": "voidwalker.checkPrerequisites",
         "title": "Check Prerequisites",
-        "category": "C Test Generator"
+        "category": "Voidwalker"
       }
     ],
     "menus": {
       "editor/context": [
         {
           "when": "resourceLangId == c || resourceLangId == cpp && resourceExtname == '.h'",
-          "command": "s5in-c-bva-test-generator.generateTest",
+          "command": "voidwalker.generateTest",
           "group": "testing@1"
         }
       ]
     },
     "keybindings": [
       {
-        "command": "s5in-c-bva-test-generator.generateTest",
+        "command": "voidwalker.generateTest",
         "key": "ctrl+shift+t",
         "mac": "cmd+shift+t",
         "when": "editorTextFocus && (resourceLangId == c || resourceLangId == cpp && resourceExtname == '.h')"
       }
     ],
     "configuration": {
-      "title": "C Test Generator",
+      "title": "Voidwalker",
       "properties": {
-        "cTestGenerator.testDensity": {
+        "voidwalker.testDensity": {
           "type": "string",
           "default": "standard",
           "enum": ["minimal", "standard", "exhaustive"],
           "markdownDescription": "Controls how many boundary test cases are generated per function.\n\n- `minimal` — min, max, zero only (fewest tests)\n- `standard` — full BVA: min, min+1, max−1, max (**default**)\n- `exhaustive` — all boundary classes including near-zero, infinity, overflow"
         },
-        "cTestGenerator.numberOfRandomValues": {
+        "voidwalker.numberOfRandomValues": {
           "type": "number",
           "default": 5,
           "minimum": 0,
           "markdownDescription": "Number of additional random test values generated per parameter. These are appended after the boundary-value tests. Set to `0` to disable random test generation."
         },
-        "cTestGenerator.enableBoundaryNaN": {
+        "voidwalker.enableBoundaryNaN": {
           "type": "boolean",
           "default": true,
           "markdownDescription": "Include `NAN` in the boundary values generated for floating-point parameters (`float`, `double`). Disable to skip NaN test cases."
         },
-        "cTestGenerator.enableBoundaryInfinity": {
+        "voidwalker.enableBoundaryInfinity": {
           "type": "boolean",
           "default": true,
           "markdownDescription": "Include `INFINITY` and `-INFINITY` in the boundary values generated for floating-point parameters (`float`, `double`). Disable to skip infinity test cases."
         },
-        "cTestGenerator.enableBoundaryZero": {
+        "voidwalker.enableBoundaryZero": {
           "type": "boolean",
           "default": true,
           "markdownDescription": "Include zero and near-zero boundary values (e.g. `0`, `0.0f`, `-0.0f`, `FLT_EPSILON`) in test generation. Disable to skip zero-boundary test cases."
         },
-        "cTestGenerator.outputFormat": {
+        "voidwalker.outputFormat": {
           "type": "string",
           "default": "googletest",
           "enum": ["googletest", "plain"],
           "markdownDescription": "Output format for generated test files.\n\n- `googletest` — Google Test `TEST(…)` macros (**default**)\n- `plain` — plain C function stubs without a test framework"
         },
-        "cTestGenerator.includeNegativeTests": {
+        "voidwalker.includeNegativeTests": {
           "type": "boolean",
           "default": true,
           "markdownDescription": "Generate negative/invalid-input test cases (e.g. `NULL` pointers, negative sizes). Disable to produce only valid-input boundary tests."
         },
-        "cTestGenerator.testFileNamingPattern": {
+        "voidwalker.testFileNamingPattern": {
           "type": "string",
           "default": "test_{filename}",
           "markdownDescription": "Pattern for the generated test file name. `{filename}` is replaced with the source file's base name (without extension). For example, with the default `test_{filename}`, opening `math.c` produces `test_math.cpp`."
@@ -134,6 +135,7 @@
     "@types/vscode": "^1.109.0",
     "@vscode/test-cli": "^0.0.12",
     "@vscode/test-electron": "^2.5.2",
+    "@vscode/vsce": "^3.4.2",
     "esbuild": "^0.27.2",
     "eslint": "^9.39.2",
     "npm-run-all": "^4.1.5",

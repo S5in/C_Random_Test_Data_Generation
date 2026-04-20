@@ -1,5 +1,5 @@
 /**
- * Centralised configuration reader for the C Test Generator extension.
+ * Centralised configuration reader for the Voidwalker extension.
  *
  * All VS Code settings are read here and exposed as a strongly-typed object.
  * Call `getExtensionConfig()` on every command invocation so that settings
@@ -44,7 +44,7 @@ export interface ExtensionConfig {
  * so that the user's latest changes are always picked up.
  */
 export function getExtensionConfig(): ExtensionConfig {
-    const cfg = vscode.workspace.getConfiguration('cTestGenerator');
+    const cfg = vscode.workspace.getConfiguration('voidwalker');
     const density = cfg.get<string>('testDensity', 'standard');
     const validDensities: TestDensity[] = ['minimal', 'standard', 'exhaustive'];
     const testDensity: TestDensity = (validDensities.includes(density as TestDensity))

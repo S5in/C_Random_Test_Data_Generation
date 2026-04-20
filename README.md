@@ -1,4 +1,4 @@
-# S5in C BVA Test Generator (v2.0.3)
+# Voidwalker (v3.0.0)
 A VS Code extension that **automatically generates Google Test (GTest) test cases** for your C functions using **Boundary Value Analysis (BVA)**.
 Right-click any C function → get a full set of boundary tests instantly. No test-writing boilerplate.
 ---
@@ -7,8 +7,9 @@ Right-click any C function → get a full set of boundary tests instantly. No te
 - **Boundary Value Analysis** — Automatically generates test cases for `INT_MIN`, `INT_MAX`, `0`, boundary ±1 values, float/double infinities, and more
 - **Supports all C primitive types** — `int`, `unsigned int`, `long`, `short`, `float`, `double`, `char`, `size_t`, and their variants
 - **Pointer, array & struct support** — Generates `NULL` / valid-pointer tests, single-element / typical array tests, and zero-initialized / extreme struct tests
+- **Header file support** — Parse `.h` header files to extract function prototypes and generate tests directly from them
 - **Global variable awareness** — Detects and tests global variables used by your function
-- **Test density control** — Choose `minimal`, `standard`, or `exhaustive` via the `s5inCBvaTestGenerator.testDensity` setting
+- **Test density control** — Choose `minimal`, `standard`, or `exhaustive` via the `voidwalker.testDensity` setting
 - **Interactive expected values** — Fill in expected results through a built-in webview UI, or skip and fill them manually later
 - **Custom Tests tab** — Add your own test cases with custom parameter values; struct parameters get per-field inputs; remove any custom test with the ✖ button
 - **Preview tab** — See the full generated C++ test code with syntax highlighting before saving
@@ -17,8 +18,14 @@ Right-click any C function → get a full set of boundary tests instantly. No te
 - **Automatic `main()` handling** — Source files with a `main()` function are automatically handled; the extension renames it at compile time so GoogleTest's entry point works correctly
 - **Build & Run** — Build and execute tests directly from VS Code with one click
 - **VS Code Problems panel** — Build errors from g++/cmake are parsed and shown with file/line info
-- **Output Channel logging** — All extension activity appears in the "C Test Generator" output panel
+- **Output Channel logging** — All extension activity appears in the "Voidwalker" output panel
 - **Cross-platform** — Works on Windows, Linux, and WSL
+---
+## 🆕 What's New in v3.0.0
+- **Header file (`.h`) parsing support** — The extension can now parse `.h` header files to extract function declarations/prototypes and generate tests from them, not just `.c` source files.
+- **Rebranded to Voidwalker** — The extension has been renamed from "S5in C BVA Test Generator" to "Voidwalker" for a cleaner, more memorable identity.
+- **VS Code Marketplace publish pipeline** — Added GitHub Actions CI/CD workflow for automated packaging and publishing via `vsce`.
+- **Polished metadata** — Updated categories, keywords, and descriptions for better discoverability on the Marketplace.
 ---
 ## 🆕 What's New in v2.0.0
 ### Goal 1 — Pointer, Array & Struct support
@@ -37,7 +44,7 @@ int func_with_struct(struct Point p);     // struct: zero-init + extreme values
 Add to your VS Code `settings.json` or workspace settings:
 ```json
 {
-  "s5inCBvaTestGenerator.testDensity": "standard"
+  "voidwalker.testDensity": "standard"
 }
 ```
 | Value | Tests per parameter | Description |
@@ -52,7 +59,7 @@ Add to your VS Code `settings.json` or workspace settings:
 - **Stats bar** — "Tests generated / Selected / Custom"
 ### Goal 5 — Better Error Reporting
 - Build errors appear in the **Problems** panel (clickable, with file + line)
-- "C Test Generator" **Output Channel** for all log messages
+- "Voidwalker" **Output Channel** for all log messages
 - Clearer error: _"Place your cursor inside a C function body and try again."_
 ---
 ## 📋 Prerequisites
@@ -103,29 +110,29 @@ ls /usr/lib/libgtest*.a 2>/dev/null || ls /usr/local/lib/libgtest*.a 2>/dev/null
                   # Should list libgtest.a and libgtest_main.a
 ```
 If all three commands produce output, you're ready to go.
-> **Tip:** You can also verify everything from within VS Code — click the **Prerequisites** status bar item at the bottom, or open the Command Palette (`Ctrl+Shift+P`) and run **"C Test Generator: Check Prerequisites"**. A dialog will show the status of each tool and install instructions if anything is missing.
+> **Tip:** You can also verify everything from within VS Code — click the **Prerequisites** status bar item at the bottom, or open the Command Palette (`Ctrl+Shift+P`) and run **"Voidwalker: Check Prerequisites"**. A dialog will show the status of each tool and install instructions if anything is missing.
 ---
 ## 🚀 Installation
 ### From the VS Code Marketplace (Recommended)
 1. Open **VS Code**
 2. Go to the **Extensions** sidebar (`Ctrl+Shift+X`)
-3. Search for **"S5in C BVA Test Generator"** in the search bar
+3. Search for **"Voidwalker"** in the search bar
 4. Click **Install** on the extension by **S5in**
 5. You're ready to go — no reload needed!
-> **Tip:** You can also open the Command Palette (`Ctrl+Shift+P`), type `ext install S5in.s5in-c-bva-test-generator`, and press Enter.
+> **Tip:** You can also open the Command Palette (`Ctrl+Shift+P`), type `ext install S5in.voidwalker`, and press Enter.
 ### From the terminal
 ```bash
-code --install-extension S5in.s5in-c-bva-test-generator
+code --install-extension S5in.voidwalker
 ```
 ---
 ## 📖 How to Use
 ### Step 1: Open a C file
-Open any `.c` file in VS Code.
+Open any `.c` or `.h` file in VS Code.
 ### Step 2: Generate tests
 Place your cursor **inside** a function and do one of:
 - Press **`Ctrl+Shift+T`** (`Cmd+Shift+T` on Mac)
 - Right-click → **"Generate Tests for This Function"**
-- Command Palette (`Ctrl+Shift+P`) → **"C Test Generator: Generate Tests for This Function"**
+- Command Palette (`Ctrl+Shift+P`) → **"Voidwalker: Generate Tests for This Function"**
 ### Step 3: The extension creates two files next to your `.c` file
 ```
 your_project/
@@ -159,9 +166,9 @@ When you're ready, click one of three buttons:
 | ⏭️ **Skip** | Close the panel without saving (tests keep `FAIL()` placeholders) |
 ### Step 5: Build & Run
 Build and run can happen automatically (from the popup or webview), or you can trigger it manually at any time:
-- Command Palette (`Ctrl+Shift+P`) → **"C Test Generator: Build & Run Tests"**
+- Command Palette (`Ctrl+Shift+P`) → **"Voidwalker: Build & Run Tests"**
 
-The **"C Test Generator" output channel** shows the full build log and test results. Any build errors are also surfaced in the **VS Code Problems panel** with clickable file + line info.
+The **"Voidwalker" output channel** shows the full build log and test results. Any build errors are also surfaced in the **VS Code Problems panel** with clickable file + line info.
 ---
 ## 🧪 Example
 Given this C function:
@@ -210,24 +217,36 @@ TEST(derefTest, Param_ptr_ValidPointer) {
 ## ⌨️ Commands
 | Command | Shortcut | Description |
 |---------|----------|-------------|
-| **Generate Tests for This Function** | `Ctrl+Shift+T` | Generate boundary tests for the function at cursor |
-| **Build & Run Tests** | — | Build and execute the generated tests |
-| **Clean Build Directory** | — | Remove the `build/` directory |
-| **Check Prerequisites** | — | Verify that g++, CMake ≥ 3.14, and GTest are installed; shows install instructions if anything is missing |
+| **Voidwalker: Generate Tests for This Function** | `Ctrl+Shift+T` | Generate boundary tests for the function at cursor |
+| **Voidwalker: Build & Run Tests** | — | Build and execute the generated tests |
+| **Voidwalker: Clean Build Directory** | — | Remove the `build/` directory |
+| **Voidwalker: Check Prerequisites** | — | Verify that g++, CMake ≥ 3.14, and GTest are installed; shows install instructions if anything is missing |
 ---
 ## ⚙️ Configuration
 | Setting | Default | Options | Description |
 |---------|---------|---------|-------------|
-| `s5inCBvaTestGenerator.testDensity` | `standard` | `minimal`, `standard`, `exhaustive` | Controls how many boundary test cases are generated per function |
+| `voidwalker.testDensity` | `standard` | `minimal`, `standard`, `exhaustive` | Controls how many boundary test cases are generated per function |
+| `voidwalker.numberOfRandomValues` | `5` | any number ≥ 0 | Number of additional random test values per parameter |
+| `voidwalker.enableBoundaryNaN` | `true` | `true`/`false` | Include NaN boundary values for float/double parameters |
+| `voidwalker.enableBoundaryInfinity` | `true` | `true`/`false` | Include ±Infinity boundary values for float/double parameters |
+| `voidwalker.enableBoundaryZero` | `true` | `true`/`false` | Include zero/near-zero boundary values |
+| `voidwalker.outputFormat` | `googletest` | `googletest`, `plain` | Output format for generated test files |
+| `voidwalker.includeNegativeTests` | `true` | `true`/`false` | Generate NULL pointer / negative-input test cases |
+| `voidwalker.testFileNamingPattern` | `test_{filename}` | any string | Pattern for generated test file name |
 ---
 ## ⚠️ Important Notes
 - **One function at a time** — Place your cursor inside the function you want to test. The extension tests the function at the cursor position, not the entire file.
-- **C files only** — The extension activates only for `.c` files. It generates `.cpp` test files (Google Test is C++).
+- **C and header files** — The extension activates for `.c` files and `.h` header files. It generates `.cpp` test files (Google Test is C++).
 - **CMakeLists.txt is overwritten** — Each time you generate tests, the `CMakeLists.txt` in that directory is regenerated. If you've customized it, back it up first.
 - **Functions with 7+ parameters** — The extension will warn you about large parameter counts (exponential test combinations). Consider refactoring to use structs.
 - **Files with `main()`** — If your `.c` file has a `main()` function, the extension automatically handles the conflict with GoogleTest's entry point. No manual changes needed.
 ---
 ## 📦 Release Notes
+### 3.0.0 — Iteration 3
+- **Header file (`.h`) parsing support** — The extension can now parse `.h` header files to extract function declarations/prototypes and generate tests from them, not just `.c` source files.
+- **Rebranded to Voidwalker** — The extension has been renamed from "S5in C BVA Test Generator" to "Voidwalker" for a cleaner, more memorable identity.
+- **VS Code Marketplace publish pipeline** — Added GitHub Actions CI/CD workflow for automated packaging and publishing via `vsce`.
+- **Polished metadata** — Updated categories, keywords, and descriptions for better discoverability on the Marketplace.
 ### 2.0.3 — Patch
 - Output pointer parameters in void-return functions are now treated as output params in custom tests: the form no longer asks for an input value — it auto-declares the buffer and asserts its value after the call
 - Status bar "Prerequisites" item now appears immediately on startup (activation event changed to `onStartupFinished`)

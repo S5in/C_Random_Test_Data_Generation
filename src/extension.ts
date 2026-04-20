@@ -1,5 +1,5 @@
 /**
- * C Test Generator Extension
+ * Voidwalker Extension
  * 
  *
  * Generates Google Test test cases for C functions with boundary value analysis.
@@ -275,7 +275,7 @@ function detectMissingSystemIncludes(sourceFilePath: string): string[] {
  */
 export async function activate(context: vscode.ExtensionContext) {
     try {
-        console.log('C Test Generator: Activating extension...');
+        console.log('Voidwalker: Activating extension...');
 
         // Initialize build runner
         buildRunner = new BuildRunner();
@@ -307,13 +307,13 @@ export async function activate(context: vscode.ExtensionContext) {
         }
         parser.setLanguage(CLang);
 
-        buildRunner.log('C Test Generator: Parser initialized successfully');
+        buildRunner.log('Voidwalker: Parser initialized successfully');
 
         // ========================================
         // Command 1: Generate Tests for Current Function
         // ========================================
         let generateTestCommand = vscode.commands.registerCommand(
-            's5in-c-bva-test-generator.generateTest', 
+            'voidwalker.generateTest', 
             async () => {
                 try {
                     const result = await generateTestForCurrentFunction(parser);
@@ -362,7 +362,7 @@ export async function activate(context: vscode.ExtensionContext) {
         // Command 2: Build & Run Tests
         // ========================================
         let buildAndRunCommand = vscode.commands.registerCommand(
-            's5in-c-bva-test-generator.buildAndRun',
+            'voidwalker.buildAndRun',
             async () => {
                 try {
                     const editor = vscode.window.activeTextEditor;
@@ -404,7 +404,7 @@ export async function activate(context: vscode.ExtensionContext) {
         // Command 3: Clean Build Directory
         // ========================================
         let cleanBuildCommand = vscode.commands.registerCommand(
-            's5in-c-bva-test-generator.cleanBuild',
+            'voidwalker.cleanBuild',
             async () => {
                 try {
                     const editor = vscode.window.activeTextEditor;
@@ -428,7 +428,7 @@ export async function activate(context: vscode.ExtensionContext) {
         // Command 4: Check Prerequisites
         // ========================================
         let checkPrerequisitesCommand = vscode.commands.registerCommand(
-            's5in-c-bva-test-generator.checkPrerequisites',
+            'voidwalker.checkPrerequisites',
             async () => {
                 await checkPrerequisites(buildRunner, true);
             }
@@ -440,8 +440,8 @@ export async function activate(context: vscode.ExtensionContext) {
             vscode.StatusBarAlignment.Left,
             100
         );
-        prerequisiteStatusBar.command = 's5in-c-bva-test-generator.checkPrerequisites';
-        prerequisiteStatusBar.tooltip = 'C Test Generator: Click to check prerequisites (g++, CMake, GTest)';
+        prerequisiteStatusBar.command = 'voidwalker.checkPrerequisites';
+        prerequisiteStatusBar.tooltip = 'Voidwalker: Click to check prerequisites (g++, CMake, GTest)';
         prerequisiteStatusBar.text = '$(sync~spin) Prerequisites…';
         prerequisiteStatusBar.show();
 
@@ -456,12 +456,12 @@ export async function activate(context: vscode.ExtensionContext) {
         // Run prerequisite check on activation (non-blocking, warnings only)
         checkPrerequisites(buildRunner, false).catch(() => { /* ignore */ });
 
-        console.log('C Test Generator: Extension activated successfully');
+        console.log('Voidwalker: Extension activated successfully');
 
     } catch (error) {
         console.error('Extension activation failed:', error);
         vscode.window.showErrorMessage(
-            `C Test Generator failed to activate: ${error}\n\nCheck the output console for details.`
+            `Voidwalker failed to activate: ${error}\n\nCheck the output console for details.`
         );
     }
 }
@@ -650,21 +650,21 @@ async function checkPrerequisites(runner: BuildRunner, interactive: boolean): Pr
         if (allOk) {
             prerequisiteStatusBar.text = '$(check) Prerequisites';
             prerequisiteStatusBar.backgroundColor = undefined;
-            prerequisiteStatusBar.tooltip = 'C Test Generator: All prerequisites met. Click to re-check.';
+            prerequisiteStatusBar.tooltip = 'Voidwalker: All prerequisites met. Click to re-check.';
         } else {
             prerequisiteStatusBar.text = '$(warning) Prerequisites';
             prerequisiteStatusBar.backgroundColor = new vscode.ThemeColor('statusBarItem.warningBackground');
-            prerequisiteStatusBar.tooltip = 'C Test Generator: Some prerequisites are missing. Click to check.';
+            prerequisiteStatusBar.tooltip = 'Voidwalker: Some prerequisites are missing. Click to check.';
         }
     }
     if (interactive) {
         if (allOk) {
             vscode.window.showInformationMessage(
-                'C Test Generator — All prerequisites met!\n\n' + summary
+                'Voidwalker — All prerequisites met!\n\n' + summary
             );
         } else {
             const choice = await vscode.window.showWarningMessage(
-                'C Test Generator — Some prerequisites are missing',
+                'Voidwalker — Some prerequisites are missing',
                 { modal: true, detail: `${summary}\n\n${installInstructions}` },
                 'Open Install Instructions'
             );
@@ -679,7 +679,7 @@ async function checkPrerequisites(runner: BuildRunner, interactive: boolean): Pr
     } else {
         // Non-interactive: just log warnings for anything missing
         if (!allOk) {
-            runner.log('⚠️  Click the "$(warning) Prerequisites" status bar item or run "C Test Generator: Check Prerequisites" from the Command Palette to see details.');
+            runner.log('⚠️  Click the "$(warning) Prerequisites" status bar item or run "Voidwalker: Check Prerequisites" from the Command Palette to see details.');
         }
     }
 }
@@ -1104,7 +1104,7 @@ async function collectAllWorkspaceStructs(
     return Array.from(merged.values());
 }
 export function deactivate() {
-    buildRunner.log('C Test Generator: Deactivating extension...');
+    buildRunner.log('Voidwalker: Deactivating extension...');
     
     if (buildRunner) {
         buildRunner.dispose();

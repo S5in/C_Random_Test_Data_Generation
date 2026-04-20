@@ -28,7 +28,7 @@ export class BuildRunner {
     private isWindowsHost: boolean;
 
     constructor() {
-        this.outputChannel = vscode.window.createOutputChannel('C Test Generator');
+        this.outputChannel = vscode.window.createOutputChannel('Voidwalker');
         this.diagnosticCollection = vscode.languages.createDiagnosticCollection('c-test-generator');
         // Detect if we're running on Windows (not WSL inside)
         this.isWindowsHost = os.platform() === 'win32';
@@ -526,7 +526,7 @@ export class BuildRunner {
                 diagSeverity = vscode.DiagnosticSeverity.Information;
             }
             const diagnostic = new vscode.Diagnostic(range, message, diagSeverity);
-            diagnostic.source = 'C Test Generator';
+            diagnostic.source = 'Voidwalker';
             if (!diagnosticsMap.has(filePath)) {
                 diagnosticsMap.set(filePath, []);
             }
