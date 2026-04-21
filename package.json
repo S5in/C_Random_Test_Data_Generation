@@ -1,6 +1,6 @@
 {
   "name": "voidwalker",
-  "displayName": "Voidwalker",
+  "displayName": "Voidwalker by S5in",
   "description": "Voidwalker — automatically generates Google Test test cases for C functions using boundary value analysis. Right-click a function → get tests.",
   "version": "3.0.0",
   "publisher": "S5in",
