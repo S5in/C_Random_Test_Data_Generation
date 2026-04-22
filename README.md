@@ -1,4 +1,4 @@
-# Voidwalker (v3.0.0)
+# Vo1dwalker (v3.0.0)
 A VS Code extension that **automatically generates Google Test (GTest) test cases** for your C functions using **Boundary Value Analysis (BVA)**.
 Right-click any C function → get a full set of boundary tests instantly. No test-writing boilerplate.
 ---
@@ -23,7 +23,7 @@ Right-click any C function → get a full set of boundary tests instantly. No te
 ---
 ## 🆕 What's New in v3.0.0
 - **Header file (`.h`) parsing support** — The extension can now parse `.h` header files to extract function declarations/prototypes and generate tests from them, not just `.c` source files.
-- **Rebranded to Voidwalker** — The extension has been renamed from "S5in C BVA Test Generator" to "Voidwalker" for a cleaner, more memorable identity.
+- **Rebranded to Vo1dwalker** — The extension has been renamed from "S5in C BVA Test Generator" to "Vo1dwalker" for a cleaner, more memorable identity.
 - **VS Code Marketplace publish pipeline** — Added GitHub Actions CI/CD workflow for automated packaging and publishing via `vsce`.
 - **Polished metadata** — Updated categories, keywords, and descriptions for better discoverability on the Marketplace.
 ---
@@ -244,7 +244,7 @@ TEST(derefTest, Param_ptr_ValidPointer) {
 ## 📦 Release Notes
 ### 3.0.0 — Iteration 3
 - **Header file (`.h`) parsing support** — The extension can now parse `.h` header files to extract function declarations/prototypes and generate tests from them, not just `.c` source files.
-- **Rebranded to Voidwalker** — The extension has been renamed from "S5in C BVA Test Generator" to "Voidwalker" for a cleaner, more memorable identity.
+- **Rebranded to Vo1dwalker** — The extension has been renamed from "S5in C BVA Test Generator" to "Vo1dwalker" for a cleaner, more memorable identity.
 - **VS Code Marketplace publish pipeline** — Added GitHub Actions CI/CD workflow for automated packaging and publishing via `vsce`.
 - **Polished metadata** — Updated categories, keywords, and descriptions for better discoverability on the Marketplace.
 ### 2.0.3 — Patch

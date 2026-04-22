@@ -1,8 +1,8 @@
 {
   "name": "voidwalker",
-  "displayName": "Voidwalker by S5in",
-  "description": "Voidwalker — automatically generates Google Test test cases for C functions using boundary value analysis. Right-click a function → get tests.",
-  "version": "3.0.0",
+  "displayName": "Vo1dwalker",
+  "description": "Vo1dwalker — automatically generates Google Test test cases for C functions using boundary value analysis. Right-click a function → get tests.",
+  "version": "3.0.1",
   "publisher": "S5in",
   "icon": "images/icon.png",
   "license": "SEE LICENSE IN LICENSE.txt",
